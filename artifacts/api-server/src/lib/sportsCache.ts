@@ -9,10 +9,9 @@ import {
   ALL_SPORTS,
   fetchActiveSports,
   fetchGameOdds,
-  fetchAllEventProps,
   getQuotaStats,
   type OddsApiEventWithOdds,
-  type OddsApiMarket,
+  type OddsApiBookmaker,
 } from "./oddsApi";
 import { generatePicksFromOdds, type GeneratedPick } from "./picksEngine";
 
@@ -23,7 +22,8 @@ export interface SportDataEntry {
   sportTitle: string;
   category: string;
   events: OddsApiEventWithOdds[];
-  propMarkets: Record<string, OddsApiMarket[]>; // eventId → markets
+  /** eventId → per-bookmaker prop data */
+  propBookmakers: Record<string, OddsApiBookmaker[]>;
   picks: GeneratedPick[];
   fetchedAt: Date;
 }
@@ -93,46 +93,24 @@ export async function refreshSportsData(force = false): Promise<void> {
 
     for (const sport of sportsToFetch) {
       try {
-        // 3. Fetch game odds (h2h + spreads + totals) for every event — 1 quota credit
+        // 3. Fetch game odds — skip outrightOnly sports (golf, racing) as they
+        //    only support outright/winner markets, not h2h/spreads/totals
+        if ((sport as typeof sport & { outrightOnly?: boolean }).outrightOnly) continue;
+
         const events = await fetchGameOdds(sport.key);
 
         if (events.length === 0) continue;
 
-        // 4. For sports with player props, fetch props for today's top events
-        const propMarkets: Record<string, OddsApiMarket[]> = {};
-
-        if (sport.fetchProps && sport.propMarkets.length > 0) {
-          // Sort events by commence time, take first 3 (closest upcoming)
-          const upcomingEvents = events
-            .filter((e) => {
-              const start = new Date(e.commence_time);
-              const now = new Date();
-              const hoursFromNow = (start.getTime() - now.getTime()) / (1000 * 60 * 60);
-              return hoursFromNow >= -3 && hoursFromNow <= 24; // started within 3h or starts within 24h
-            })
-            .slice(0, 3);
-
-          for (const event of upcomingEvents) {
-            try {
-              const markets = await fetchAllEventProps(event.id, sport.key, sport.propMarkets);
-              if (markets.length > 0) {
-                propMarkets[event.id] = markets;
-              }
-            } catch (e) {
-              logger.warn({ err: e, eventId: event.id }, "Failed to fetch props for event");
-            }
-          }
-        }
-
-        // 5. Generate picks from the real odds data
-        const picks = await generatePicksFromOdds(events, propMarkets, sport.title);
+        // 4. Generate AI-powered picks using real game odds as context
+        //    (Player props require a paid Odds API tier; we use OpenAI + game lines instead)
+        const picks = await generatePicksFromOdds(events, {}, sport.title);
 
         entries.push({
           sportKey: sport.key,
           sportTitle: sport.title,
           category: sport.category,
           events,
-          propMarkets,
+          propBookmakers: {},
           picks,
           fetchedAt: new Date(),
         });
