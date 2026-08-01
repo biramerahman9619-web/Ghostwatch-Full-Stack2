@@ -1,0 +1,1 @@
+- [Ghostwatch architecture](ghostwatch-arch.md) — full-stack sports betting AI app; key decisions on auth, AI, OpenAPI constraints, and design.
