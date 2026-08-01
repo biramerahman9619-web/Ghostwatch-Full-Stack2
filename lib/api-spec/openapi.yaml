@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: openai
+    description: OpenAI AI chat and image operations
   - name: ghostwatch
     description: Ghostwatch main picks dashboard
   - name: ghost-express
@@ -24,6 +28,215 @@ tags:
     description: User settings
 
 paths:
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema: { type: string }
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: iss
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect after login.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string, default: / }
+      responses:
+        '302':
+          description: Redirect to OIDC logout.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /openai/conversations:
+    get:
+      operationId: listOpenaiConversations
+      tags: [openai]
+      summary: List all conversations
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiConversation"
+    post:
+      operationId: createOpenaiConversation
+      tags: [openai]
+      summary: Create a new conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenaiConversationInput"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversation"
+  /openai/conversations/{id}:
+    get:
+      operationId: getOpenaiConversation
+      tags: [openai]
+      summary: Get conversation with messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiConversationWithMessages"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenaiError"
+    delete:
+      operationId: deleteOpenaiConversation
+      tags: [openai]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Deleted
+  /openai/conversations/{id}/messages:
+    get:
+      operationId: listOpenaiMessages
+      tags: [openai]
+      summary: List messages in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpenaiMessage"
+    post:
+      operationId: sendOpenaiMessage
+      tags: [openai]
+      summary: Send a message and receive a streaming response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenaiMessageInput"
+      responses:
+        "200":
+          description: SSE stream of assistant text chunks
+          content:
+            text/event-stream: {}
+
   /healthz:
     get:
       operationId: healthCheck
@@ -289,12 +502,113 @@ paths:
                 $ref: "#/components/schemas/UserSettings"
 
 components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema: { type: string }
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema: { type: string }
+
   schemas:
     HealthStatus:
       type: object
       required: [status]
       properties:
         status: { type: string }
+
+    # ─── Auth ─────────────────────────────────────────────────────────────────
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id: { type: string }
+        email: { type: ["string", "null"] }
+        firstName: { type: ["string", "null"] }
+        lastName: { type: ["string", "null"] }
+        profileImageUrl: { type: ["string", "null"] }
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code: { type: string, minLength: 1 }
+        code_verifier: { type: string, minLength: 1 }
+        redirect_uri: { type: string, minLength: 1 }
+        state: { type: string, minLength: 1 }
+        nonce: { type: string, minLength: 1 }
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    # ─── OpenAI ───────────────────────────────────────────────────────────────
+    OpenaiConversation:
+      type: object
+      required: [id, title, createdAt]
+      properties:
+        id: { type: number }
+        title: { type: string }
+        createdAt: { type: string, format: date-time }
+    OpenaiMessage:
+      type: object
+      required: [id, conversationId, role, content, createdAt]
+      properties:
+        id: { type: number }
+        conversationId: { type: number }
+        role: { type: string }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+    OpenaiConversationInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+    OpenaiMessageInput:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+    OpenaiConversationWithMessages:
+      type: object
+      required: [id, title, createdAt, messages]
+      properties:
+        id: { type: number }
+        title: { type: string }
+        createdAt: { type: string, format: date-time }
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenaiMessage"
+    OpenaiError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
 
     # ─── Ghostwatch ──────────────────────────────────────────────────────────
     Pick:

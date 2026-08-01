@@ -9,6 +9,80 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+}
+
+export interface AuthUserEnvelope {
+  user: AuthUser | null;
+}
+
+export interface MobileTokenExchangeRequest {
+  /** @minLength 1 */
+  code: string;
+  /** @minLength 1 */
+  code_verifier: string;
+  /** @minLength 1 */
+  redirect_uri: string;
+  /** @minLength 1 */
+  state: string;
+  /** @minLength 1 */
+  nonce?: string;
+}
+
+export interface MobileTokenExchangeSuccess {
+  token: string;
+}
+
+export interface LogoutSuccess {
+  success: boolean;
+}
+
+export interface ErrorEnvelope {
+  error: string;
+}
+
+export interface OpenaiConversation {
+  id: number;
+  title: string;
+  createdAt: string;
+}
+
+export interface OpenaiMessage {
+  id: number;
+  conversationId: number;
+  role: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface OpenaiConversationInput {
+  title: string;
+}
+
+export interface OpenaiMessageInput {
+  content: string;
+}
+
+export interface OpenaiConversationWithMessages {
+  id: number;
+  title: string;
+  createdAt: string;
+  messages: OpenaiMessage[];
+}
+
+export interface OpenaiError {
+  error: string;
+}
+
 export type PickDirection = typeof PickDirection[keyof typeof PickDirection];
 
 
@@ -320,6 +394,25 @@ export interface UserSettingsInput {
   picksPerTicket?: number;
   emailNotifications?: boolean;
 }
+
+/**
+ * Opaque session token — `Bearer <sid>`.
+ */
+export type AuthorizationSessionHeaderParameter = string;
+
+export type BeginBrowserLoginParams = {
+returnTo?: string;
+};
+
+export type HandleBrowserLoginCallbackParams = {
+code?: string;
+state?: string;
+iss?: string;
+};
+
+export type LogoutBrowserSessionParams = {
+returnTo?: string;
+};
 
 export type ListPicksParams = {
 sport?: string;
