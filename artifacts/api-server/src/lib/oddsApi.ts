@@ -21,6 +21,8 @@ export interface SportDef {
   propMarkets: string[];
   /** Whether to auto-fetch props (expensive quota) */
   fetchProps: boolean;
+  /** Golf/racing only support outright markets, not h2h/spreads/totals */
+  outrightOnly?: boolean;
 }
 
 export const ALL_SPORTS: SportDef[] = [
@@ -243,13 +245,14 @@ export const ALL_SPORTS: SportDef[] = [
     fetchProps: false,
     propMarkets: [],
   },
-  // ── Golf ────────────────────────────────────────────────────────────────────
+  // ── Golf / Racing (outright-only — no h2h/spreads/totals) ──────────────────
   {
     key: "golf_pga_championship",
     title: "PGA Championship",
     category: "Golf",
     fetchProps: false,
     propMarkets: [],
+    outrightOnly: true,
   },
   {
     key: "golf_masters_tournament_winner",
@@ -257,16 +260,17 @@ export const ALL_SPORTS: SportDef[] = [
     category: "Golf",
     fetchProps: false,
     propMarkets: [],
+    outrightOnly: true,
   },
-  // ── NASCAR / Racing ─────────────────────────────────────────────────────────
   {
     key: "motorsport_formula_1",
     title: "Formula 1",
     category: "Racing",
     fetchProps: false,
     propMarkets: [],
+    outrightOnly: true,
   },
-];
+] as (SportDef & { outrightOnly?: boolean })[];
 
 // ─── API types ────────────────────────────────────────────────────────────────
 
@@ -375,35 +379,39 @@ export async function fetchEventProps(
   });
 }
 
-/** Fetch multiple prop market batches for an event (4 markets per call). */
+/**
+ * Fetch all player prop market batches for an event (4 markets per API call).
+ * Returns the full per-bookmaker structure so extraction can track which book
+ * offered each price.
+ */
 export async function fetchAllEventProps(
   eventId: string,
   sportKey: string,
   markets: string[],
-): Promise<OddsApiMarket[]> {
+): Promise<OddsApiBookmaker[]> {
   const batches: string[][] = [];
   for (let i = 0; i < markets.length; i += 4) {
     batches.push(markets.slice(i, i + 4));
   }
 
-  const allMarkets: OddsApiMarket[] = [];
+  // Accumulate all bookmakers, merging their markets across batches
+  const bookmakerMap = new Map<string, OddsApiBookmaker>();
+
   for (const batch of batches) {
     try {
       const result = await fetchEventProps(eventId, sportKey, batch);
       for (const bm of result.bookmakers) {
-        for (const m of bm.markets) {
-          // Merge bookmaker into market structure
-          const existing = allMarkets.find((x) => x.key === m.key);
-          if (!existing) {
-            allMarkets.push({ ...m, outcomes: m.outcomes.map((o) => ({ ...o, _bookmaker: bm.title } as OddsApiOutcome & { _bookmaker: string })) });
-          } else {
-            existing.outcomes.push(...m.outcomes.map((o) => ({ ...o, _bookmaker: bm.title } as OddsApiOutcome & { _bookmaker: string })));
-          }
+        const existing = bookmakerMap.get(bm.key);
+        if (!existing) {
+          bookmakerMap.set(bm.key, { ...bm, markets: [...bm.markets] });
+        } else {
+          existing.markets.push(...bm.markets);
         }
       }
     } catch {
-      // Skip unavailable markets for this event
+      // Skip unavailable markets — some sports don't offer all prop types
     }
   }
-  return allMarkets;
+
+  return [...bookmakerMap.values()];
 }
