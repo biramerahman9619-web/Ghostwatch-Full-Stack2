@@ -323,6 +323,19 @@ paths:
                 items:
                   $ref: "#/components/schemas/Pick"
 
+  /ghostwatch/status:
+    get:
+      operationId: getGhostwatchStatus
+      tags: [ghostwatch]
+      summary: Picks cache refresh status and data provenance
+      responses:
+        "200":
+          description: Cache status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicksRefreshStatus"
+
   # ─── Ghost Express Live In-Game ────────────────────────────────────────────
   /ghost-express/live-picks:
     get:
@@ -522,6 +535,17 @@ components:
       required: [status]
       properties:
         status: { type: string }
+
+    PicksRefreshStatus:
+      type: object
+      required: [usingRealData]
+      properties:
+        usingRealData:
+          type: boolean
+          description: True when picks were generated from a live API, false when serving mock data
+        lastRefreshedAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
 
     # ─── Auth ─────────────────────────────────────────────────────────────────
     AuthUser:

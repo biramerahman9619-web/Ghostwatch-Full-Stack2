@@ -1,4 +1,4 @@
-import { useListLiveGames, useListLivePicks, useListSignals } from "@workspace/api-client-react";
+import { useListLiveGames, useListLivePicks, useListSignals, getListLivePicksQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Activity, Clock, Zap, Gauge, AlertCircle, ArrowRight } from "lucide-react";
@@ -79,9 +79,10 @@ export default function GhostExpress() {
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
 
   const activeGameId = selectedGameId || (games?.[0]?.id ?? null);
+  const livePicksParams = { gameId: activeGameId || undefined };
   const { data: livePicks, isLoading: loadingPicks } = useListLivePicks(
-    { gameId: activeGameId || undefined },
-    { query: { enabled: !!activeGameId } }
+    livePicksParams,
+    { query: { enabled: !!activeGameId, queryKey: getListLivePicksQueryKey(livePicksParams) } }
   );
 
   return (

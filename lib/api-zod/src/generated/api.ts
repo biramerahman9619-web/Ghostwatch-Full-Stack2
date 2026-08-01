@@ -286,6 +286,15 @@ export const GetTopPicksResponse = zod.array(GetTopPicksResponseItem)
 
 
 /**
+ * @summary Picks cache refresh status and data provenance
+ */
+export const GetGhostwatchStatusResponse = zod.object({
+  "usingRealData": zod.boolean().describe('True when picks were generated from a live API, false when serving mock data'),
+  "lastRefreshedAt": zod.string().nullish().describe('ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed')
+})
+
+
+/**
  * @summary Live in-game recommended props
  */
 export const ListLivePicksQueryParams = zod.object({

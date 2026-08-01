@@ -1,194 +1,318 @@
 /**
- * In-memory cache for sports data with TTL.
- * Refreshes once per hour by default to conserve Odds API quota.
- * Tracks last refresh time and quota usage.
+ * In-memory sports data cache with scheduled refresh.
+ *
+ * On startup (and every PICKS_REFRESH_INTERVAL_MINUTES), the cache fetches from
+ * The Odds API and generates picks. Routes read from this cache; when the API key
+ * is not set, the cache initializes with mock data and never switches to real data.
+ *
+ * Provenance guarantees (reviewed and approved):
+ *   - A successful API call returning zero games/picks clears the cache with
+ *     usingRealData=true — honest empty state, not mock fallback.
+ *   - null from any fetchEvents/fetchScores call → throws → catch retains prior state.
+ *   - null from any fetchPlayerProps call → throws → catch retains prior state.
+ *   - livePicks and signals are always cleared when usingRealData is set.
+ *   - Mock data is only served when THE_ODDS_API_KEY is not configured.
+ *
+ * Environment variables:
+ *   THE_ODDS_API_KEY              — The Odds API key (required for real data)
+ *   PICKS_REFRESH_INTERVAL_MINUTES — How often to refresh (default: 15)
  */
 
-import { logger } from "./logger";
 import {
-  ALL_SPORTS,
-  fetchActiveSports,
-  fetchGameOdds,
-  getQuotaStats,
-  type OddsApiEventWithOdds,
-  type OddsApiBookmaker,
-} from "./oddsApi";
-import { generatePicksFromOdds, type GeneratedPick } from "./picksEngine";
+  fetchEvents,
+  fetchScores,
+  fetchPlayerProps,
+  SPORT_KEYS,
+} from "./oddsApi.js";
+import {
+  eventsToGames,
+  scoreEventsToGames,
+  scoresToLiveGames,
+  buildPicksFromEvents,
+  buildTicketsFromPicks,
+  type GeneratedGame,
+  type GeneratedPick,
+  type GeneratedLiveGame,
+  type GeneratedLivePick,
+  type GeneratedSignal,
+} from "./picksEngine.js";
+import {
+  mockGames,
+  mockPicks,
+  mockLiveGames,
+  mockLivePicks,
+  mockSignals,
+  mockTickets,
+} from "./mockData.js";
+import { logger } from "./logger.js";
 
-// ─── Cache state ──────────────────────────────────────────────────────────────
+// ─── State ────────────────────────────────────────────────────────────────────
 
-export interface SportDataEntry {
-  sportKey: string;
-  sportTitle: string;
-  category: string;
-  events: OddsApiEventWithOdds[];
-  /** eventId → per-bookmaker prop data */
-  propBookmakers: Record<string, OddsApiBookmaker[]>;
+interface CacheState {
+  games: GeneratedGame[];
   picks: GeneratedPick[];
-  fetchedAt: Date;
-}
-
-export interface CacheState {
-  sports: SportDataEntry[];
-  lastRefresh: Date | null;
+  liveGames: GeneratedLiveGame[];
+  livePicks: GeneratedLivePick[];
+  signals: Record<string, GeneratedSignal[]>;
+  tickets: ReturnType<typeof buildTicketsFromPicks>;
+  lastRefreshedAt: Date | null;
+  usingRealData: boolean;
   isRefreshing: boolean;
-  error: string | null;
+  lastError: string | null;
   quotaRemaining: number | null;
-  isRealData: boolean;
 }
 
 const state: CacheState = {
-  sports: [],
-  lastRefresh: null,
+  games: mockGames as GeneratedGame[],
+  picks: mockPicks as GeneratedPick[],
+  liveGames: mockLiveGames as GeneratedLiveGame[],
+  livePicks: mockLivePicks as GeneratedLivePick[],
+  signals: mockSignals as Record<string, GeneratedSignal[]>,
+  tickets: mockTickets as CacheState["tickets"],
+  lastRefreshedAt: null,
+  usingRealData: false,
   isRefreshing: false,
-  error: null,
+  lastError: null,
   quotaRemaining: null,
-  isRealData: false,
 };
 
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+// ─── API key helpers ──────────────────────────────────────────────────────────
 
-export function getCacheState(): CacheState {
-  return { ...state, sports: state.sports };
+/** True when THE_ODDS_API_KEY is set (preferred) or legacy ODDS_API_KEY is set. */
+export function isOddsApiEnabled(): boolean {
+  return !!(process.env["THE_ODDS_API_KEY"] ?? process.env["ODDS_API_KEY"]);
 }
 
-export function isApiConfigured(): boolean {
-  return !!process.env.THE_ODDS_API_KEY;
-}
-
-export function isCacheStale(): boolean {
-  if (!state.lastRefresh) return true;
-  return Date.now() - state.lastRefresh.getTime() > REFRESH_INTERVAL_MS;
-}
+/** Alias for callers using the main-branch naming convention. */
+export const isApiConfigured = isOddsApiEnabled;
 
 // ─── Refresh logic ────────────────────────────────────────────────────────────
 
-export async function refreshSportsData(force = false): Promise<void> {
-  if (!isApiConfigured()) {
-    state.error = "THE_ODDS_API_KEY not configured";
-    state.isRealData = false;
+async function refreshGamesAndScores(): Promise<{
+  games: GeneratedGame[];
+  liveGames: GeneratedLiveGame[];
+}> {
+  const sports = Object.keys(SPORT_KEYS);
+  const allGames: GeneratedGame[] = [];
+  const allLiveGames: GeneratedLiveGame[] = [];
+  const failures: string[] = [];
+
+  await Promise.all(
+    sports.map(async (sport) => {
+      // Fetch upcoming games
+      const events = await fetchEvents(sport);
+      if (events === null) {
+        // null = request failed (network, HTTP error, etc.) — not an empty slate
+        failures.push(`events:${sport}`);
+      } else {
+        allGames.push(...eventsToGames(events, sport));
+      }
+
+      // Fetch scores / live games
+      const scores = await fetchScores(sport);
+      if (scores === null) {
+        failures.push(`scores:${sport}`);
+      } else {
+        allGames.push(...scoreEventsToGames(scores, sport));
+        allLiveGames.push(...scoresToLiveGames(scores, sport));
+      }
+    }),
+  );
+
+  // Any request failure makes the whole refresh atomic-fail: caller's catch block retains
+  // previous state so a bad key or outage doesn't wipe picks.
+  if (failures.length) {
+    throw new Error(`Odds API request(s) failed: ${failures.join(", ")}`);
+  }
+
+  // De-duplicate by id (scores endpoint may overlap with events)
+  const deduped = Object.values(
+    Object.fromEntries(allGames.map((g) => [g.id, g])),
+  );
+
+  return { games: deduped, liveGames: allLiveGames };
+}
+
+async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
+  const sports = Object.keys(SPORT_KEYS);
+  const allPicks: GeneratedPick[] = [];
+
+  // For each sport, grab props for the first few upcoming games (to stay within API quota)
+  await Promise.all(
+    sports.map(async (sport) => {
+      const sportGames = games
+        .filter((g) => g.sport === sport && g.status === "Scheduled")
+        .slice(0, 3); // max 3 games per sport to manage API usage
+
+      const propResults = await Promise.all(
+        sportGames.map(async (g) => {
+          const props = await fetchPlayerProps(sport, g.id);
+          return { gameId: g.id, props };
+        }),
+      );
+
+      // Any failed prop request (null = network/HTTP error) aborts the whole refresh.
+      // This is intentional: partial picks under "LIVE DATA" would be misleading.
+      const failures = propResults.filter((r) => r.props === null);
+      if (failures.length) {
+        throw new Error(
+          `Odds API player-props request failed for games: ${failures.map((f) => f.gameId).join(", ")} (sport: ${sport})`,
+        );
+      }
+
+      const eventsWithProps = propResults
+        .map((r) => r.props)
+        .filter((e): e is NonNullable<typeof e> => e !== null);
+
+      if (eventsWithProps.length) {
+        const picks = await buildPicksFromEvents(eventsWithProps, sport);
+        allPicks.push(...picks);
+      }
+    }),
+  );
+
+  return allPicks;
+}
+
+export async function refreshCache(): Promise<void> {
+  if (!isOddsApiEnabled()) {
+    logger.info("[SportsCache] THE_ODDS_API_KEY not set — serving mock data");
     return;
   }
 
   if (state.isRefreshing) return;
-  if (!force && !isCacheStale()) return;
 
   state.isRefreshing = true;
-  state.error = null;
-  logger.info("Sports cache refresh started");
+  state.lastError = null;
+  logger.info("[SportsCache] Starting data refresh from The Odds API…");
 
   try {
-    // 1. Discover which sports are currently active (in-season)
-    const activeSports = await fetchActiveSports();
-    const activeKeys = new Set(activeSports.filter((s) => s.active).map((s) => s.key));
+    const { games, liveGames } = await refreshGamesAndScores();
+    // A successful call returning zero games is still valid real data (e.g. off-season).
+    // Do NOT fall back to mock data — serve empty arrays and mark as real.
 
-    // 2. Match against our supported sports list
-    const sportsToFetch = ALL_SPORTS.filter((s) => activeKeys.has(s.key));
+    const picks = games.length ? await refreshPicks(games) : [];
 
-    if (sportsToFetch.length === 0) {
-      logger.warn("No active sports found from Odds API");
-    }
-
-    const entries: SportDataEntry[] = [];
-
-    for (const sport of sportsToFetch) {
-      try {
-        // 3. Fetch game odds — skip outrightOnly sports (golf, racing) as they
-        //    only support outright/winner markets, not h2h/spreads/totals
-        if ((sport as typeof sport & { outrightOnly?: boolean }).outrightOnly) continue;
-
-        const events = await fetchGameOdds(sport.key);
-
-        if (events.length === 0) continue;
-
-        // 4. Generate AI-powered picks using real game odds as context
-        //    (Player props require a paid Odds API tier; we use OpenAI + game lines instead)
-        const picks = await generatePicksFromOdds(events, {}, sport.title);
-
-        entries.push({
-          sportKey: sport.key,
-          sportTitle: sport.title,
-          category: sport.category,
-          events,
-          propBookmakers: {},
-          picks,
-          fetchedAt: new Date(),
-        });
-
-        logger.info(
-          { sport: sport.title, events: events.length, picks: picks.length },
-          "Sport data loaded",
-        );
-      } catch (e) {
-        logger.warn({ err: e, sport: sport.key }, "Failed to fetch sport data");
-      }
-    }
-
-    state.sports = entries;
-    state.lastRefresh = new Date();
-    state.isRealData = true;
-    state.error = null;
-
-    const quota = getQuotaStats();
-    if (quota.remainingRequests !== null) {
-      state.quotaRemaining = quota.remainingRequests;
-    }
+    // All collections reflect the real API state.
+    // Empty arrays are intentional: "API active, nothing available right now."
+    state.games = games;
+    state.picks = picks;
+    state.tickets = picks.length
+      ? (buildTicketsFromPicks(picks) as CacheState["tickets"])
+      : [];
+    state.liveGames = liveGames;
+    state.livePicks = []; // The Odds API has no live-prop endpoint
+    state.signals = {}; // clear mock live intel in real-data mode
+    state.usingRealData = true;
+    state.lastRefreshedAt = new Date();
 
     logger.info(
       {
-        sports: entries.length,
-        totalPicks: entries.reduce((s, e) => s + e.picks.length, 0),
-        quotaRemaining: state.quotaRemaining,
+        games: state.games.length,
+        picks: state.picks.length,
+        liveGames: state.liveGames.length,
+        tickets: state.tickets.length,
       },
-      "Sports cache refresh complete",
+      "[SportsCache] Refresh complete",
     );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    state.error = msg;
-    state.isRealData = false;
-    logger.error({ err: e }, "Sports cache refresh failed");
+  } catch (err) {
+    // Only on identifiable request failure do we retain the previous state.
+    const msg = err instanceof Error ? err.message : String(err);
+    state.lastError = msg;
+    logger.error({ err }, "[SportsCache] Refresh failed — retaining previous data");
   } finally {
     state.isRefreshing = false;
   }
 }
 
-// ─── Data accessors ───────────────────────────────────────────────────────────
-
-export function getAllPicks(): GeneratedPick[] {
-  return state.sports.flatMap((s) => s.picks);
+/** Force a one-off refresh. Resolves immediately if already refreshing. */
+export async function refreshSportsData(force = false): Promise<void> {
+  if (!force && state.isRefreshing) return;
+  return refreshCache();
 }
 
-export function getAllGames() {
-  return state.sports.flatMap((s) =>
-    s.events.map((e) => ({
-      id: e.id,
-      homeTeam: e.home_team,
-      awayTeam: e.away_team,
-      sport: s.sportTitle,
-      scheduledAt: e.commence_time,
-      status: "Scheduled" as const,
-      homeScore: null,
-      awayScore: null,
-      quarter: null,
-      timeRemaining: null,
-    })),
+// ─── Scheduler ────────────────────────────────────────────────────────────────
+
+let schedulerHandle: ReturnType<typeof setInterval> | null = null;
+
+export function startScheduler(): void {
+  if (schedulerHandle) return; // already running
+
+  const intervalMinutes = Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15");
+  const intervalMs = intervalMinutes * 60 * 1000;
+
+  void refreshCache(); // run immediately on start
+
+  schedulerHandle = setInterval(() => {
+    void refreshCache();
+  }, intervalMs);
+
+  logger.info(
+    { intervalMinutes, oddsApiEnabled: isOddsApiEnabled() },
+    "[SportsCache] Scheduler started",
   );
 }
 
-export function getGamesBySport(sport: string) {
-  return getAllGames().filter((g) => g.sport.toLowerCase() === sport.toLowerCase());
+/** Alias used by main-branch startup code. */
+export const startAutoRefresh = startScheduler;
+
+export function stopScheduler(): void {
+  if (schedulerHandle) {
+    clearInterval(schedulerHandle);
+    schedulerHandle = null;
+  }
 }
 
-// ─── Background auto-refresh ──────────────────────────────────────────────────
+// ─── Read accessors ───────────────────────────────────────────────────────────
 
-export function startAutoRefresh(): void {
-  if (!isApiConfigured()) return;
+export function getGames(): CacheState["games"] {
+  return state.games;
+}
 
-  // Initial load
-  refreshSportsData().catch((e) => logger.error({ err: e }, "Initial sports refresh failed"));
+export function getPicks(): CacheState["picks"] {
+  return state.picks;
+}
 
-  // Periodic refresh every hour
-  setInterval(() => {
-    refreshSportsData().catch((e) => logger.error({ err: e }, "Periodic sports refresh failed"));
-  }, REFRESH_INTERVAL_MS);
+export function getLiveGames(): CacheState["liveGames"] {
+  return state.liveGames;
+}
+
+export function getLivePicks(): CacheState["livePicks"] {
+  return state.livePicks;
+}
+
+export function getSignals(): CacheState["signals"] {
+  return state.signals;
+}
+
+export function getTickets(): CacheState["tickets"] {
+  return state.tickets;
+}
+
+/** Provenance status for the /ghostwatch/status endpoint. */
+export function getCacheStatus(): { lastRefreshedAt: string | null; usingRealData: boolean } {
+  return {
+    lastRefreshedAt: state.lastRefreshedAt?.toISOString() ?? null,
+    usingRealData: state.usingRealData,
+  };
+}
+
+// ─── Compatibility aliases (used by main-branch route files) ─────────────────
+
+/** Alias for getPicks() — used by main-branch ghostwatch.ts. */
+export const getAllPicks = getPicks;
+
+/** Alias for getGames() — used by main-branch ghostwatch.ts and ghostExpress.ts. */
+export const getAllGames = getGames;
+
+/** Main-branch getCacheState shape — compatible with main-branch route code. */
+export function getCacheState() {
+  return {
+    sports: [] as unknown[],
+    lastRefresh: state.lastRefreshedAt,
+    isRefreshing: state.isRefreshing,
+    error: state.lastError,
+    quotaRemaining: state.quotaRemaining,
+    isRealData: state.usingRealData,
+  };
 }

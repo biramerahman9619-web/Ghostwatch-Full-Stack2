@@ -47,6 +47,7 @@ import type {
   OpenaiMessage,
   OpenaiMessageInput,
   Pick,
+  PicksRefreshStatus,
   PicksSummary,
   PlayerSocialScore,
   Signal,
@@ -1387,6 +1388,83 @@ export function useGetTopPicks<TData = Awaited<ReturnType<typeof getTopPicks>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTopPicksQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetGhostwatchStatusUrl = () => {
+
+
+
+
+  return `/api/ghostwatch/status`
+}
+
+/**
+ * @summary Picks cache refresh status and data provenance
+ */
+export const getGhostwatchStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<PicksRefreshStatus> => {
+
+  return customFetch<PicksRefreshStatus>(getGetGhostwatchStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGhostwatchStatusQueryKey = () => {
+    return [
+    `/api/ghostwatch/status`
+    ] as const;
+    }
+
+
+export const getGetGhostwatchStatusQueryOptions = <TData = Awaited<ReturnType<typeof getGhostwatchStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGhostwatchStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGhostwatchStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGhostwatchStatus>>> = ({ signal }) => getGhostwatchStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGhostwatchStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGhostwatchStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getGhostwatchStatus>>>
+export type GetGhostwatchStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Picks cache refresh status and data provenance
+ */
+
+export function useGetGhostwatchStatus<TData = Awaited<ReturnType<typeof getGhostwatchStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGhostwatchStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGhostwatchStatusQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -6,33 +6,12 @@ import {
   ListSignalsQueryParams,
   ListSignalsResponse,
 } from "@workspace/api-zod";
-import { mockLivePicks, mockLiveGames, mockSignals } from "../lib/mockData";
-import { isApiConfigured, getCacheState, getAllGames } from "../lib/sportsCache";
+import { getLiveGames, getLivePicks, getSignals } from "../lib/sportsCache.js";
 
 const router: IRouter = Router();
 
 router.get("/ghost-express/live-games", async (_req, res): Promise<void> => {
-  if (isApiConfigured()) {
-    const allGames = getAllGames();
-    // Games that started in the last 4 hours and haven't ended — treat as "live"
-    const now = Date.now();
-    const live = allGames.filter((g) => {
-      const start = new Date(g.scheduledAt).getTime();
-      const ageHours = (now - start) / (1000 * 60 * 60);
-      return ageHours >= 0 && ageHours <= 4;
-    });
-
-    if (live.length > 0) {
-      const liveWithStatus = live.map((g) => ({
-        ...g,
-        status: "Live" as const,
-        pace: "Normal" as const,
-      }));
-      res.json(ListLiveGamesResponse.parse(liveWithStatus));
-      return;
-    }
-  }
-  res.json(ListLiveGamesResponse.parse(mockLiveGames));
+  res.json(ListLiveGamesResponse.parse(getLiveGames()));
 });
 
 router.get("/ghost-express/live-picks", async (req, res): Promise<void> => {
@@ -42,9 +21,7 @@ router.get("/ghost-express/live-picks", async (req, res): Promise<void> => {
     return;
   }
 
-  // Live picks are generated from real-time props — use mock as fallback
-  // (true live updates would require a streaming odds feed subscription)
-  let picks = [...mockLivePicks];
+  let picks = [...getLivePicks()];
   if (query.data.gameId) {
     picks = picks.filter((p) => p.gameId === query.data.gameId);
   }
@@ -59,7 +36,7 @@ router.get("/ghost-express/signals", async (req, res): Promise<void> => {
     return;
   }
 
-  const signals = mockSignals[query.data.gameId] ?? [];
+  const signals = getSignals()[query.data.gameId] ?? [];
   res.json(ListSignalsResponse.parse(signals));
 });
 

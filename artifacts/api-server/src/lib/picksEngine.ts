@@ -1,54 +1,160 @@
 /**
- * AI-powered picks engine.
+ * Picks engine — transforms raw Odds API data into Ghostwatch picks and live signals.
  *
- * Flow:
- *  1. Parse real game odds (h2h, spreads, totals) from The Odds API free tier
- *  2. Build a structured game context per matchup (implied probabilities, spread, pace signal)
- *  3. Call OpenAI with that context to generate PrizePicks-style player prop picks
- *  4. Return typed GeneratedPick[] merged across all sports
+ * Exports two pick-generation paths:
+ *   - generatePicksFromOdds: uses OddsApiEventWithOdds + per-event propMarkets (main-branch API)
+ *   - buildPicksFromEvents:  uses OddsEvent with embedded bookmakers; adds OpenAI explanations
  *
- * Why this beats raw prop lines:
- *  - OpenAI has deep player + team stat knowledge
- *  - Real game totals and spreads ground the AI's tempo/pace reasoning
- *  - The AI explains picks with genuine context (matchup, usage, defensive ranking)
+ * Both respect the neutral-matchup-context rule: team/opponent fields are set to the
+ * full matchup string "HomeTeam vs. AwayTeam" — The Odds API does not identify which
+ * team each player belongs to, so per-player team attribution would be wrong ~50% of the time.
  */
 
 import { openai } from "@workspace/integrations-openai-ai-server";
-import type { OddsApiEventWithOdds } from "./oddsApi";
-import { logger } from "./logger";
+import { batchProcess } from "@workspace/integrations-openai-ai-server/batch";
+import { logger } from "./logger.js";
+import type {
+  OddsApiEventWithOdds,
+  OddsApiMarket,
+  OddsApiOutcome,
+  OddsEvent,
+  OddsOutcome,
+  ScoreEvent,
+} from "./oddsApi.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GeneratedPick {
   id: string;
+
   playerName: string;
+  /** Neutral matchup context: "HomeTeam vs. AwayTeam" — player's actual team is unknown */
+
   team: string;
+  /** Same matchup context as team — The Odds API does not provide per-player team attribution */
+
   opponent: string;
+
   sport: string;
+
   propType: string;
+
   line: number;
+
   direction: "Over" | "Under";
+
   projection: number;
+
   confidence: number;
+
   riskTier: "Safe" | "Balanced" | "Aggressive";
+
   explanation: string;
+
   socialImpact: number | null;
+
   createdAt: string;
-  // enriched context
-  gameId: string;
-  commenceTime: string;
-  bookmakers: string[];
-  impliedProbability: number;
-  avgAmericanOdds: number;
+  // enriched fields — populated by generatePicksFromOdds, optional in buildPicksFromEvents
+
+  gameId?: string;
+
+  commenceTime?: string;
+
+  bookmakers?: string[];
+
+  impliedProbability?: number;
+
+  avgAmericanOdds?: number;
+}
+
+export interface GeneratedLiveGame {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  homeScore: number;
+  awayScore: number;
+  quarter: string;
+  timeRemaining: string;
+  pace: "Slow" | "Normal" | "Fast";
+  status: "Live" | "Halftime" | "Final";
+}
+
+// ─── Prop type labels ─────────────────────────────────────────────────────────
+
+const PROP_LABELS: Record<string, string> = {
+  player_points: "Points",
+  player_rebounds: "Rebounds",
+  player_assists: "Assists",
+  player_threes: "3-Pointers Made",
+  player_blocks: "Blocks",
+  player_steals: "Steals",
+  player_turnovers: "Turnovers",
+  player_points_rebounds_assists: "Pts+Reb+Ast",
+  player_points_rebounds: "Pts+Reb",
+  player_points_assists: "Pts+Ast",
+  player_rebounds_assists: "Reb+Ast",
+  player_first_basket: "First Basket Scorer",
+  player_pass_yds: "Passing Yards",
+  player_pass_tds: "Passing TDs",
+  player_pass_completions: "Completions",
+  player_pass_attempts: "Pass Attempts",
+  player_pass_interceptions: "Interceptions",
+  player_rush_yds: "Rushing Yards",
+  player_rush_attempts: "Rush Attempts",
+  player_rush_tds: "Rushing TDs",
+  player_reception_yds: "Receiving Yards",
+  player_receptions: "Receptions",
+  player_reception_tds: "Receiving TDs",
+  player_anytime_td: "Anytime TD",
+  player_kicking_points: "Kicking Points",
+  player_field_goals: "Field Goals",
+  player_strikeouts: "Strikeouts",
+  pitcher_strikeouts: "Pitcher Strikeouts",
+  player_hits: "Hits",
+  batter_hits: "Hits",
+  player_home_runs: "Home Runs",
+  batter_home_runs: "Home Runs",
+  player_rbis: "RBIs",
+  batter_rbis: "RBIs",
+  player_total_bases: "Total Bases",
+  batter_total_bases: "Total Bases",
+  player_stolen_bases: "Stolen Bases",
+  player_walks: "Walks",
+  player_earned_runs: "Earned Runs Allowed",
+  player_goals: "Goals",
+  player_saves: "Saves",
+  player_shots_on_goal: "Shots on Goal",
+  player_power_play_points: "Power Play Points",
+  player_blocked_shots: "Blocked Shots",
+  player_goal_scorer_anytime: "Goal Scorer",
+  player_shots_on_target: "Shots on Target",
+};
+
+function propLabel(key: string): string {
+  return PROP_LABELS[key] ?? key.replace(/^player_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
+/** Convert American odds to implied probability (0–1). */
 function americanToImplied(odds: number): number {
   if (odds >= 0) return 100 / (odds + 100);
   return Math.abs(odds) / (Math.abs(odds) + 100);
 }
 
+/** Compute the market-devigged implied probability (remove bookmaker juice). */
+function devig(overOdds: number, underOdds: number): { overProb: number; underProb: number } {
+  const rawOver = americanToImplied(overOdds);
+  const rawUnder = americanToImplied(underOdds);
+  const total = rawOver + rawUnder;
+  return {
+    overProb: rawOver / total,
+    underProb: rawUnder / total,
+  };
+}
+
+/** Average a list of American odds into a single implied probability. */
 function avgImplied(prices: number[]): number {
   if (!prices.length) return 0.5;
   return prices.reduce((s, p) => s + americanToImplied(p), 0) / prices.length;
@@ -379,4 +485,568 @@ export async function generatePicksFromOdds(
   );
 
   return deduped;
+}
+
+export interface GeneratedGame {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  scheduledAt: string;
+  status: "Scheduled" | "Live" | "Final";
+  homeScore: number | null;
+  awayScore: number | null;
+  quarter: string | null;
+  timeRemaining: string | null;
+}
+
+interface PickContext {
+  playerName: string;
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  propType: string;
+  line: number;
+  direction: "Over" | "Under";
+  confidence: number;
+  bookmakerCount: number;
+  impliedProbPct: number;
+}
+
+export function eventsToGames(events: OddsEvent[], sport: string): GeneratedGame[] {
+  return events.map((e) => ({
+    id: e.id,
+    homeTeam: e.home_team,
+    awayTeam: e.away_team,
+    sport,
+    scheduledAt: e.commence_time,
+    status: "Scheduled" as const,
+    homeScore: null,
+    awayScore: null,
+    quarter: null,
+    timeRemaining: null,
+  }));
+}
+
+// ─── Core extraction ──────────────────────────────────────────────────────────
+
+interface PropGroup {
+  playerName: string;
+  propKey: string;
+  line: number;
+  overPrices: { price: number; bookmaker: string }[];
+  underPrices: { price: number; bookmaker: string }[];
+  homeTeam: string;
+  awayTeam: string;
+  gameId: string;
+  commenceTime: string;
+  sport: string;
+}
+
+/**
+ * Flatten all bookmaker markets for an event into a list of prop groups,
+ * keyed by player + prop + line.
+ */
+function extractPropGroups(
+  event: OddsApiEventWithOdds,
+  markets: OddsApiMarket[],
+  sport: string,
+): PropGroup[] {
+  const groups: Map<string, PropGroup> = new Map();
+
+  for (const bm of event.bookmakers) {
+    for (const market of bm.markets) {
+      const byName: Record<string, { over?: OddsApiOutcome; under?: OddsApiOutcome }> = {};
+
+      for (const outcome of market.outcomes) {
+        const name = outcome.name;
+        if (!byName[name]) byName[name] = {};
+        if (outcome.description?.toLowerCase() === "over") byName[name].over = outcome;
+        else if (outcome.description?.toLowerCase() === "under") byName[name].under = outcome;
+      }
+
+      for (const [playerName, sides] of Object.entries(byName)) {
+        if (!sides.over && !sides.under) continue;
+        const line = sides.over?.point ?? sides.under?.point ?? 0;
+        const key = `${playerName}|${market.key}|${line}`;
+
+        if (!groups.has(key)) {
+          groups.set(key, {
+            playerName,
+            propKey: market.key,
+            line,
+            overPrices: [],
+            underPrices: [],
+            homeTeam: event.home_team,
+            awayTeam: event.away_team,
+            gameId: event.id,
+            commenceTime: event.commence_time,
+            sport,
+          });
+        }
+
+        const g = groups.get(key)!;
+        if (sides.over) g.overPrices.push({ price: sides.over.price, bookmaker: bm.title });
+        if (sides.under) g.underPrices.push({ price: sides.under.price, bookmaker: bm.title });
+      }
+    }
+  }
+
+  return [...groups.values()];
+}
+
+// ─── Pick scoring ─────────────────────────────────────────────────────────────
+
+function scorePropGroup(group: PropGroup, sportTitle: string): GeneratedPick | null {
+  const totalBooks = new Set([
+    ...group.overPrices.map((p) => p.bookmaker),
+    ...group.underPrices.map((p) => p.bookmaker),
+  ]).size;
+
+  // Need at least 2 bookmakers for consensus
+  if (totalBooks < 2) return null;
+
+  const overImplied = avgImplied(group.overPrices.map((p) => p.price));
+  const underImplied = avgImplied(group.underPrices.map((p) => p.price));
+
+  // Devig using average pair when we have both sides
+  let trueOverProb: number;
+  let trueUnderProb: number;
+
+  if (group.overPrices.length > 0 && group.underPrices.length > 0) {
+    const avgOver = group.overPrices.reduce((s, p) => s + p.price, 0) / group.overPrices.length;
+    const avgUnder = group.underPrices.reduce((s, p) => s + p.price, 0) / group.underPrices.length;
+    const d = devig(avgOver, avgUnder);
+    trueOverProb = d.overProb;
+    trueUnderProb = d.underProb;
+  } else {
+    trueOverProb = overImplied;
+    trueUnderProb = underImplied;
+  }
+
+  const favorsOver = trueOverProb > trueUnderProb;
+  const edgeProb = favorsOver ? trueOverProb : trueUnderProb;
+
+  // Require meaningful edge (>53%)
+  if (edgeProb < 0.53) return null;
+
+  const direction: "Over" | "Under" = favorsOver ? "Over" : "Under";
+  const avgOdds = direction === "Over"
+    ? group.overPrices.reduce((s, p) => s + p.price, 0) / (group.overPrices.length || 1)
+    : group.underPrices.reduce((s, p) => s + p.price, 0) / (group.underPrices.length || 1);
+
+  const bookmakerNames = [...new Set([
+    ...group.overPrices.map((p) => p.bookmaker),
+    ...group.underPrices.map((p) => p.bookmaker),
+  ])];
+
+  // Confidence: base from edge + book agreement bonus
+  const baseConfidence = Math.round(edgeProb * 100);
+  const bookBonus = Math.min(15, (totalBooks - 2) * 5);
+  const confidence = Math.min(95, baseConfidence + bookBonus);
+
+  // Risk tier
+  const riskTier: "Safe" | "Balanced" | "Aggressive" =
+    confidence >= 72 && Math.abs(avgOdds) >= 120
+      ? "Safe"
+      : confidence >= 62
+        ? "Balanced"
+        : "Aggressive";
+
+  // Projection = line × edge multiplier (estimated actual performance)
+  const edgeMult = direction === "Over" ? 1 + (edgeProb - 0.5) * 0.4 : 1 - (edgeProb - 0.5) * 0.4;
+  const projection = Math.round(group.line * edgeMult * 10) / 10;
+
+  // The Odds API does not identify which team a player belongs to.
+  // Use neutral matchup context in both fields rather than falsely claiming home/away.
+  const team = `${group.homeTeam} vs. ${group.awayTeam}`;
+  const opponent = `${group.homeTeam} vs. ${group.awayTeam}`;
+
+  // Explanation from raw data
+  const oddsStr = avgOdds >= 0 ? `+${Math.round(avgOdds)}` : `${Math.round(avgOdds)}`;
+  const gameDate = new Date(group.commenceTime).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const explanation =
+    `${bookmakerNames.length} books agree ${direction.toLowerCase()} ${group.line}. ` +
+    `Avg odds ${oddsStr} (${Math.round(edgeProb * 100)}% true probability after removing juice). ` +
+    `Books: ${bookmakerNames.slice(0, 3).join(", ")}${bookmakerNames.length > 3 ? ` +${bookmakerNames.length - 3} more` : ""}. ` +
+    `Game: ${group.homeTeam} vs ${group.awayTeam} — ${gameDate}.`;
+
+  return {
+    id: `pick_${group.gameId}_${group.playerName.replace(/\s+/g, "_")}_${group.propKey}`,
+    playerName: group.playerName,
+    team,
+    opponent,
+    sport: sportTitle,
+    propType: propLabel(group.propKey),
+    line: group.line,
+    direction,
+    projection,
+    confidence,
+    riskTier,
+    explanation,
+    socialImpact: null,
+    createdAt: new Date().toISOString(),
+    bookmakers: bookmakerNames,
+    avgAmericanOdds: Math.round(avgOdds),
+    impliedProbability: Math.round(edgeProb * 1000) / 10,
+    gameId: group.gameId,
+    commenceTime: group.commenceTime,
+  };
+}
+
+/**
+ * Convert a batch of Odds API events with player props into Ghostwatch picks.
+ * Runs explanation generation via OpenAI in parallel batches.
+ */
+export async function buildPicksFromEvents(
+  eventsWithProps: OddsEvent[],
+  sport: string,
+): Promise<GeneratedPick[]> {
+  const rawLines = eventsWithProps.flatMap((e) => extractPropLines(e, sport));
+
+  // Require at least 2 bookmakers agreeing on a line before including the pick
+  const viable = rawLines.filter((l) => l.line > 0 && l.bookmakerCount >= 2);
+
+  // Build pick contexts (without explanations yet)
+  interface PickMeta {
+    ctx: PickContext;
+    raw: RawPropLine;
+    direction: "Over" | "Under";
+    confidence: number;
+    impliedProbPct: number;
+  }
+
+  const metas: PickMeta[] = viable.map((l) => {
+    const overProb = impliedProb(l.overOdds);
+    const underProb = impliedProb(l.underOdds);
+    const direction: "Over" | "Under" = overProb >= underProb ? "Over" : "Under";
+    const prob = Math.max(overProb, underProb);
+    const confidence = probToConfidence(prob);
+    const impliedProbPct = Math.round(prob * 100);
+
+    return {
+      raw: l,
+      direction,
+      confidence,
+      impliedProbPct,
+      ctx: {
+        playerName: l.playerName,
+        homeTeam: l.homeTeam,
+        awayTeam: l.awayTeam,
+        sport,
+        propType: marketKeyToPropType(l.marketKey),
+        line: l.line,
+        direction,
+        confidence,
+        bookmakerCount: l.bookmakerCount,
+        impliedProbPct,
+      },
+    };
+  });
+
+  // Batch generate explanations via OpenAI (concurrency 3)
+  const explanations = await batchProcess(
+    metas,
+    (meta: PickMeta) => generateExplanation(meta.ctx),
+    { concurrency: 3, retries: 2 },
+  );
+
+  const now = new Date().toISOString();
+
+  return metas.map((meta, i) => ({
+    id: `real-${sport.toLowerCase()}-${i}-${Date.now()}`,
+    playerName: meta.raw.playerName,
+    // The Odds API player-prop markets do not identify which team a player belongs to.
+    // We represent the game-level matchup in both fields rather than falsely claiming
+    // the player is on the home team or away team.
+    team: `${meta.raw.homeTeam} vs. ${meta.raw.awayTeam}`,
+    opponent: `${meta.raw.homeTeam} vs. ${meta.raw.awayTeam}`,
+    sport,
+    propType: meta.ctx.propType,
+    line: meta.raw.line,
+    direction: meta.direction,
+    projection: deriveProjection(meta.raw.line, meta.direction, meta.confidence),
+    confidence: meta.confidence,
+    riskTier: riskTierFromConfidence(meta.confidence),
+    explanation: explanations[i] ?? fallbackExplanation(meta.ctx),
+    socialImpact: null,
+    createdAt: now,
+  }));
+}
+
+export function buildTicketsFromPicks(picks: GeneratedPick[]) {
+  const tiers: Array<"Safe" | "Balanced" | "Aggressive"> = ["Safe", "Balanced", "Aggressive"];
+  const tickets = [];
+
+  for (const tier of tiers) {
+    const tierPicks = picks.filter((p) => p.riskTier === tier);
+    if (!tierPicks.length) continue;
+
+    // Group into tickets of 3 picks each
+    for (let i = 0; i < tierPicks.length; i += 3) {
+      const chunk = tierPicks.slice(i, i + 3);
+      if (!chunk.length) continue;
+
+      const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
+      const sports = [...new Set(chunk.map((p) => p.sport))];
+
+      tickets.push({
+        id: `ticket-${tier.toLowerCase()}-${i}-${Date.now()}`,
+        riskTier: tier,
+        picks: chunk,
+        combinedConfidence: Math.round(avgConf * 10) / 10,
+        sport: sports.length === 1 ? sports[0]! : "Mixed",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return tickets;
+}
+
+/** Derive a projected stat value: slightly above/below the line based on direction */
+function deriveProjection(line: number, direction: "Over" | "Under", confidence: number): number {
+  const edge = line * (0.04 + (confidence - 50) * 0.001); // 4–9% edge depending on confidence
+  const raw = direction === "Over" ? line + edge : line - edge;
+  return Math.round(raw * 10) / 10;
+}
+
+export function scoresToLiveGames(scores: ScoreEvent[], sport: string): GeneratedLiveGame[] {
+  return scores
+    .filter((e) => !e.completed && e.scores && e.scores.length > 0)
+    .map((e) => {
+      const homeScore = Number(e.scores!.find((s) => s.name === e.home_team)?.score ?? 0);
+      const awayScore = Number(e.scores!.find((s) => s.name === e.away_team)?.score ?? 0);
+      const total = homeScore + awayScore;
+      // Rough pace classification — higher totals indicate faster pace
+      const pace: "Slow" | "Normal" | "Fast" =
+        sport === "NBA"
+          ? total > 220 ? "Fast" : total > 180 ? "Normal" : "Slow"
+          : "Normal";
+      return {
+        id: e.id,
+        homeTeam: e.home_team,
+        awayTeam: e.away_team,
+        sport,
+        homeScore,
+        awayScore,
+        quarter: "Live",
+        timeRemaining: "",
+        pace,
+        status: "Live" as const,
+      };
+    });
+}
+
+interface RawPropLine {
+  eventId: string;
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  marketKey: string;
+  playerName: string;
+  line: number;
+  overOdds: number;
+  underOdds: number;
+  bookmakerCount: number;
+}
+
+/** Human-readable prop type from market key */
+function marketKeyToPropType(key: string): string {
+  const map: Record<string, string> = {
+    player_points: "Points",
+    player_rebounds: "Rebounds",
+    player_assists: "Assists",
+    player_threes: "3-Pointers",
+    player_blocks: "Blocks",
+    player_steals: "Steals",
+    player_points_rebounds_assists: "Points + Rebounds + Assists",
+    player_points_rebounds: "Points + Rebounds",
+    player_points_assists: "Points + Assists",
+    player_pass_yds: "Passing Yards",
+    player_rush_yds: "Rushing Yards",
+    player_reception_yds: "Receiving Yards",
+    player_pass_tds: "Passing TDs",
+    player_receptions: "Receptions",
+    batter_total_bases: "Total Bases",
+    batter_hits: "Hits",
+    batter_rbis: "RBIs",
+    pitcher_strikeouts: "Strikeouts",
+    player_goals: "Goals",
+  };
+  return map[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function extractPropLines(event: OddsEvent, sport: string): RawPropLine[] {
+  if (!event.bookmakers?.length) return [];
+
+  // Aggregate lines across bookmakers, pick the consensus (median) line
+  // Key: "marketKey::playerName"
+  const linesByKey: Record<string, { lines: number[]; overOdds: number[]; underOdds: number[]; bookmakers: Set<string> }> = {};
+
+  for (const bm of event.bookmakers) {
+    for (const market of bm.markets) {
+      const overs = market.outcomes.filter((o) => o.name === "Over" && o.point !== undefined);
+      const unders = market.outcomes.filter((o) => o.name === "Under" && o.point !== undefined);
+
+      for (const over of overs) {
+        const playerName = over.description ?? "Unknown";
+        if (playerName === "Unknown") continue;
+
+        const key = `${market.key}::${playerName}`;
+        if (!linesByKey[key]) {
+          linesByKey[key] = { lines: [], overOdds: [], underOdds: [], bookmakers: new Set() };
+        }
+        const entry = linesByKey[key]!;
+        entry.lines.push(over.point!);
+        entry.overOdds.push(over.price);
+        entry.bookmakers.add(bm.key);
+
+        const under = unders.find((u: OddsOutcome) => u.description === playerName && u.point === over.point);
+        if (under) entry.underOdds.push(under.price);
+      }
+    }
+  }
+
+  const result: RawPropLine[] = [];
+
+  for (const [key, data] of Object.entries(linesByKey)) {
+    if (!data.lines.length) continue;
+
+    const colonIdx = key.indexOf("::");
+    const marketKey = key.slice(0, colonIdx);
+    const playerName = key.slice(colonIdx + 2);
+
+    // Consensus line (median)
+    const sorted = [...data.lines].sort((a, b) => a - b);
+    const line = sorted[Math.floor(sorted.length / 2)]!;
+    const overOdds = data.overOdds.reduce((a, b) => a + b, 0) / data.overOdds.length;
+    const underOdds = data.underOdds.length
+      ? data.underOdds.reduce((a, b) => a + b, 0) / data.underOdds.length
+      : -overOdds;
+
+    result.push({
+      eventId: event.id,
+      homeTeam: event.home_team,
+      awayTeam: event.away_team,
+      sport,
+      marketKey,
+      playerName,
+      line,
+      overOdds,
+      underOdds,
+      bookmakerCount: data.bookmakers.size,
+    });
+  }
+
+  return result;
+}
+
+export interface GeneratedLivePick {
+  id: string;
+  gameId: string;
+  playerName: string;
+  team: string;
+  propType: string;
+  line: number;
+  direction: "Over" | "Under";
+  projection: number;
+  confidence: number;
+  riskTier: "Safe" | "Balanced" | "Aggressive";
+  explanation: string;
+  sport: string;
+  detectedSignals: string[];
+}
+
+export function scoreEventsToGames(scores: ScoreEvent[], sport: string): GeneratedGame[] {
+  return scores.map((e) => {
+    const homeScore = e.scores?.find((s) => s.name === e.home_team)?.score;
+    const awayScore = e.scores?.find((s) => s.name === e.away_team)?.score;
+    return {
+      id: e.id,
+      homeTeam: e.home_team,
+      awayTeam: e.away_team,
+      sport,
+      scheduledAt: e.commence_time,
+      status: e.completed ? ("Final" as const) : ("Live" as const),
+      homeScore: homeScore ? Number(homeScore) : null,
+      awayScore: awayScore ? Number(awayScore) : null,
+      quarter: null,
+      timeRemaining: null,
+    };
+  });
+}
+
+/**
+ * Generate a pick explanation grounded ONLY in the supplied market data.
+ * The prompt explicitly forbids the model from citing stats, injuries, or
+ * matchup details it cannot verify — only odds-derived reasoning is allowed.
+ */
+async function generateExplanation(ctx: PickContext): Promise<string> {
+  try {
+    const prompt = `You are Ghostwatch, an AI sports betting assistant. Write exactly 2 sentences explaining why this player prop is worth betting.
+
+STRICT RULES:
+- Base your explanation ONLY on the market data listed below.
+- Do NOT invent player stats, season averages, injury status, or matchup rankings you don't know.
+- Do reference: the odds consensus, implied probability, line value, and the matchup context.
+- Be direct and specific about the market signal. No filler phrases.
+
+Market data:
+  Sport: ${ctx.sport}
+  Matchup: ${ctx.homeTeam} vs ${ctx.awayTeam}
+  Player: ${ctx.playerName}
+  Prop: ${ctx.direction} ${ctx.line} ${ctx.propType}
+  Bookmakers agreeing: ${ctx.bookmakerCount}
+  Odds-implied probability: ${ctx.impliedProbPct}%
+  Confidence score: ${ctx.confidence}/100`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 120,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return completion.choices[0]?.message?.content?.trim() ?? fallbackExplanation(ctx);
+  } catch {
+    return fallbackExplanation(ctx);
+  }
+}
+
+/** Map implied probability to a confidence score (50–95) */
+function probToConfidence(prob: number): number {
+  // Scale: 50% implied → 50 confidence, 80% implied → 90 confidence
+  const raw = 50 + (prob - 0.5) * 160;
+  return Math.min(95, Math.max(45, Math.round(raw)));
+}
+
+export interface GeneratedSignal {
+  id: string;
+  gameId: string;
+  type: "PaceSpike" | "UsageSpike" | "MismatchDetected" | "InjuryUpdate" | "FoulTrouble";
+  description: string;
+  strength: "Low" | "Medium" | "High";
+  playerName: string;
+  team: string;
+}
+
+/** Convert American odds to implied probability (0–1) */
+function impliedProb(americanOdds: number): number {
+  if (americanOdds >= 0) return 100 / (americanOdds + 100);
+  return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
+}
+
+function riskTierFromConfidence(conf: number): "Safe" | "Balanced" | "Aggressive" {
+  if (conf >= 75) return "Safe";
+  if (conf >= 60) return "Balanced";
+  return "Aggressive";
+}
+
+function fallbackExplanation(ctx: PickContext): string {
+  return `${ctx.bookmakerCount} bookmakers set the ${ctx.propType} line at ${ctx.line} with a ${ctx.impliedProbPct}% implied probability favoring ${ctx.direction}. Market consensus and confidence score of ${ctx.confidence}/100 support the ${ctx.direction} in the ${ctx.homeTeam} vs ${ctx.awayTeam} matchup.`;
 }

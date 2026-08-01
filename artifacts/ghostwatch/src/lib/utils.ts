@@ -6,9 +6,9 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatTime(dateString: string) {
-  return new Intl.DateTimeFormatformat(new Date(dateString), {
+  return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true
-  });
+  }).format(new Date(dateString));
 }

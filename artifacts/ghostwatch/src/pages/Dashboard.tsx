@@ -1,4 +1,4 @@
-import { useListPicks, useGetPicksSummary, useGetTopPicks } from "@workspace/api-client-react";
+import { useListPicks, useGetPicksSummary, useGetTopPicks, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -44,7 +44,7 @@ function PickCard({ pick }: { pick: any }) {
               {pick.playerName}
             </h3>
             <p className="text-sm text-muted-foreground font-mono mt-1">
-              {pick.team} vs {pick.opponent}
+              {pick.team}
             </p>
           </div>
           <div className="text-right">
@@ -89,6 +89,7 @@ export default function Dashboard() {
     }
   );
   const { data: topPicks } = useGetTopPicks();
+  const { data: refreshStatus } = useGetGhostwatchStatus({ query: { refetchInterval: 60_000, queryKey: getGetGhostwatchStatusQueryKey() } });
 
   return (
     <div className="flex-1 flex flex-col">
@@ -103,10 +104,21 @@ export default function Dashboard() {
               </h1>
               <p className="text-sm text-muted-foreground font-mono mt-1">Real-time AI projections & market mismatches</p>
             </div>
-            <div className="flex gap-2">
-              <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1">
-                LAST UPDATED: <span className="text-primary ml-2">{new Date().toLocaleTimeString()}</span>
-              </Badge>
+            <div className="flex gap-2 items-center">
+              {refreshStatus?.usingRealData ? (
+                <Badge variant="safe" className="font-mono text-xs px-3 py-1">
+                  LIVE DATA
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1 text-muted-foreground">
+                  DEMO DATA
+                </Badge>
+              )}
+              {refreshStatus?.lastRefreshedAt && (
+                <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1">
+                  REFRESHED: <span className="text-primary ml-2">{new Date(refreshStatus.lastRefreshedAt).toLocaleTimeString()}</span>
+                </Badge>
+              )}
             </div>
           </div>
 

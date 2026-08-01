@@ -49,6 +49,16 @@ An AI-powered sports betting assistant with four modules: a picks dashboard, liv
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
 
+## Environment variables
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | ✅ Yes | — | Postgres connection string for user_settings table |
+| `ODDS_API_KEY` | No | — | [The Odds API](https://the-odds-api.com/) key — enables real game slates, scores, and player prop lines. When absent, app serves mock data. |
+| `PICKS_REFRESH_INTERVAL_MINUTES` | No | `15` | How often the scheduler refreshes picks and games from The Odds API |
+| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Auto-set | — | Replit AI Integrations proxy base URL for OpenAI (auto-provisioned) |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | Auto-set | — | Replit AI Integrations OpenAI API key (auto-provisioned) |
+
 ## Gotchas
 
 - After any `lib/api-spec/openapi.yaml` change, run `pnpm --filter @workspace/api-spec run codegen` before writing backend routes (Zod schema names vary by parameter location)

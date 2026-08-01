@@ -4,7 +4,8 @@ import {
   useListOpenaiConversations, 
   useCreateOpenaiConversation,
   useGetOpenaiConversation,
-  useDeleteOpenaiConversation 
+  useDeleteOpenaiConversation,
+  getGetOpenaiConversationQueryKey,
 } from "@workspace/api-client-react";
 import { 
   Ghost, Bot, Send, Trash2, Plus, MessageSquare, Loader2, Menu 
@@ -63,7 +64,7 @@ export default function GhostphereAI() {
 
   // Load active conversation
   const { data: activeConv, isLoading: isLoadingConv } = useGetOpenaiConversation(activeId!, { 
-    query: { enabled: !!activeId } 
+    query: { enabled: !!activeId, queryKey: getGetOpenaiConversationQueryKey(activeId!) } 
   });
 
   // Auto-create initial conversation if empty
