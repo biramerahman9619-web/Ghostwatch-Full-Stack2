@@ -1,0 +1,213 @@
+You are building a full-stack web app called **Ghostwatch**. It is an AI-powered sports betting assistant with multiple modules:
+
+CORE CONCEPT
+- Ghostwatch is a web platform that:
+  - Ingests live sports data, odds, PrizePicks-style props, injuries, and player availability.
+  - Runs algorithms/AI models to generate recommended player prop picks.
+  - Classifies picks into Safe / Balanced / Aggressive risk tiers.
+  - Explains why each pick is recommended.
+- The app has multiple tabs:
+  1) Ghostwatch (main dashboard)
+  2) Ghost Express (live in-game AI)
+  3) Ghostspere (automation butler)
+  4) Ghostobservation (social & news intel)
+
+TECH STACK
+- Backend: Python (FastAPI) or Node.js (Express) — choose one and be consistent.
+- Frontend: React (with Vite or Next.js) — simple, clean UI.
+- Database: PostgreSQL or MongoDB (for users, settings, logs, picks).
+- Hosting: Replit (always-on server).
+- Use environment variables for API keys.
+
+DATA SOURCES (mock or real)
+- Sports data API (e.g., Sportsdata.io, The Odds API, etc.) for:
+  - Games, teams, players, stats, schedules.
+- Odds/props API (e.g., SharpSports or similar) for:
+  - PrizePicks-style lines and props.
+- News/social media:
+  - For now, mock this with sample JSON or simple RSS/news API calls.
+  - Later, can integrate Twitter/X, etc., via public APIs.
+
+APP STRUCTURE
+
+1) GHOSTWATCH TAB (MAIN DASHBOARD)
+- Route: `/ghostwatch`
+- Shows:
+  - Today’s slate of games (by sport).
+  - List of recommended props:
+    - Player name, team, opponent.
+    - Prop type (points, rebounds, assists, fantasy score, etc.).
+    - Line (e.g., Over 18.5 points).
+    - Model projection (e.g., 22.1 points).
+    - Confidence score (0–100).
+    - Risk tier: Safe / Balanced / Aggressive.
+    - Short explanation (1–3 sentences).
+- Filters:
+  - Sport (NBA, WNBA, NFL, etc.).
+  - Risk tier.
+  - Confidence threshold.
+- Backend:
+  - Endpoint: `GET /api/ghostwatch/picks`
+    - Returns JSON of recommended picks.
+  - Logic:
+    - Ingest data from sports + odds APIs.
+    - Build projections (for now, use simple formulas or mock AI).
+    - Compare projection vs line.
+    - Compute edge and confidence.
+    - Assign risk tier based on volatility (mocked at first).
+    - Return structured picks.
+
+2) GHOST EXPRESS TAB (LIVE IN-GAME AI)
+- Route: `/ghost-express`
+- Purpose:
+  - Wait until games start.
+  - Use live data (score, pace, usage, shot attempts, etc.).
+  - Generate in-game picks based on momentum and live conditions.
+- UI:
+  - List of live games.
+  - For each game:
+    - Live score, time, quarter.
+    - Detected signals (pace, usage spikes, mismatches).
+    - Recommended live props with confidence and explanation.
+- Backend:
+  - Endpoint: `GET /api/ghost-express/live-picks`
+  - Logic:
+    - Ingest live game data (mock or real).
+    - After X minutes into game, evaluate:
+      - Pace vs pregame expectation.
+      - Player usage (shots, touches).
+      - Defensive matchups.
+    - Generate live picks:
+      - Over/Under props with updated projections.
+    - Return JSON.
+
+3) GHOSTSPERE TAB (AUTOMATION BUTLER)
+- Route: `/ghostspere`
+- Purpose:
+  - Acts as a butler that:
+    - Takes Ghostwatch + Ghost Express picks.
+    - Builds “tickets” (2-pick, 3-pick, 5-pick combos).
+    - Sends them to the user’s Gmail.
+- UI:
+  - “Today’s Butler Tickets” section:
+    - Shows tickets grouped by risk tier (Safe / Balanced / Aggressive).
+    - Each ticket lists props, confidence, and short reasons.
+    - Button: “Send to Gmail now”.
+  - Settings section:
+    - User email (Gmail).
+    - Preferred sports.
+    - Default risk tier.
+    - Number of picks per ticket.
+- Backend:
+  - Endpoint: `POST /api/ghostspere/send-email`
+    - Body: user settings + selected ticket(s).
+    - Uses SMTP or Gmail API to send email.
+  - Endpoint: `GET /api/ghostspere/tickets`
+    - Builds tickets from Ghostwatch/Ghost Express picks based on rules:
+      - Filter by sport, risk, confidence.
+      - Group into ticket structures.
+      - Return JSON.
+
+4) GHOSTOBSERVATION TAB (SOCIAL & NEWS INTEL)
+- Route: `/ghostobservation`
+- Purpose:
+  - Monitor public social media and sports news for signals that affect performance.
+  - Feed this intel into Ghostwatch/Ghostspere.
+- UI:
+  - Player alerts:
+    - “Late-night activity detected”
+    - “Injury wrap seen in story”
+    - “Emotional post, possible fatigue”
+  - Team pulse:
+    - Team chemistry score (mocked).
+    - Drama alerts.
+    - Travel fatigue alerts.
+  - Integration notes:
+    - “Ghostspere adjusted picks based on social intel.”
+- Backend:
+  - Endpoint: `GET /api/ghostobservation/alerts`
+    - Returns JSON of alerts per player/team.
+  - Logic:
+    - For now, mock social/news data with sample JSON.
+    - Run simple sentiment/keyword analysis:
+      - Keywords: “party”, “club”, “tired”, “injured”, “locked in”, etc.
+    - Assign flags:
+      - Party risk, fatigue risk, motivation boost, injury concern.
+    - Provide a “social impact score” per player.
+  - Integration:
+    - Ghostwatch pick generation should optionally factor in social impact score.
+    - Ghostspere ticket builder should avoid players with high negative social impact.
+
+USER SETTINGS & AUTH
+- Simple user system:
+  - Sign up / login (email + password).
+  - Store:
+    - Email (for Ghostspere).
+    - Preferred sports.
+    - Risk profile.
+- Routes:
+  - `/login`, `/signup`, `/settings`.
+- Backend:
+  - Auth endpoints.
+  - Basic JWT or session-based auth.
+
+EMAIL SENDING (GHOSTSPERE)
+- Implement a function to send emails:
+  - Use SMTP or Gmail API.
+  - Template:
+    - Subject: “Ghostspere Picks – [Date / Sport]”
+    - Body:
+      - List tickets with props, confidence, risk, and explanations.
+- Make sure email sending is triggered by:
+  - Manual button click in UI.
+  - Optional scheduled job (cron) for daily picks.
+
+CRON JOBS / SCHEDULING
+- Use Replit’s scheduling or a simple loop to:
+  - Refresh data every X minutes.
+  - Rebuild Ghostwatch picks.
+  - Rebuild Ghost Express live picks.
+  - Optionally auto-generate Ghostspere tickets and store them.
+
+CODE REQUIREMENTS
+- Write clean, modular code:
+  - Separate routes/controllers for:
+    - `/api/ghostwatch`
+    - `/api/ghost-express`
+    - `/api/ghostspere`
+    - `/api/ghostobservation`
+  - Separate services for:
+    - Data ingestion.
+    - Pick generation.
+    - Social/news analysis.
+    - Email sending.
+- Provide:
+  - `README.md` explaining:
+    - How to run the app on Replit.
+    - How to set environment variables.
+    - How to plug in real APIs later.
+- Use mock data where real APIs are not available yet, but structure the code so APIs can be swapped in easily.
+
+FRONTEND REQUIREMENTS
+- Build a simple, modern UI:
+  - Sidebar with tabs:
+    - Ghostwatch
+    - Ghost Express
+    - Ghostspere
+    - Ghostobservation
+  - Each tab has its own main panel.
+- Use React components:
+  - `GhostwatchDashboard`
+  - `GhostExpressLive`
+  - `GhostspereButler`
+  - `GhostobservationIntel`
+- Show loading states and error messages.
+- Make it mobile-friendly.
+
+GOAL
+- Deliver a working MVP of Ghostwatch with:
+  - Functional backend endpoints (mocked or real).
+  - Functional frontend pages.
+  - Basic email sending from Ghostspere.
+  - Mocked social/news intel from Ghostobservation.
+- The code should be ready to extend with real data sources and more advanced AI models later.

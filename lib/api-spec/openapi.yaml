@@ -3,20 +3,32 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Ghostwatch API — AI-powered sports betting assistant
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: ghostwatch
+    description: Ghostwatch main picks dashboard
+  - name: ghost-express
+    description: Ghost Express live in-game AI
+  - name: ghostspere
+    description: Ghostspere automation butler
+  - name: ghostobservation
+    description: Ghostobservation social & news intel
+  - name: users
+    description: User management
+  - name: settings
+    description: User settings
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +36,465 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Ghostwatch Picks ──────────────────────────────────────────────────────
+  /ghostwatch/picks:
+    get:
+      operationId: listPicks
+      tags: [ghostwatch]
+      summary: Get recommended player prop picks
+      parameters:
+        - name: sport
+          in: query
+          schema: { type: string }
+        - name: riskTier
+          in: query
+          schema: { type: string, enum: [Safe, Balanced, Aggressive] }
+        - name: minConfidence
+          in: query
+          schema: { type: number }
+      responses:
+        "200":
+          description: List of picks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pick"
+
+  /ghostwatch/picks/summary:
+    get:
+      operationId: getPicksSummary
+      tags: [ghostwatch]
+      summary: Summary counts by sport, risk tier, and confidence
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PicksSummary"
+
+  /ghostwatch/games:
+    get:
+      operationId: listGames
+      tags: [ghostwatch]
+      summary: Today's slate of games
+      parameters:
+        - name: sport
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of today's games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Game"
+
+  /ghostwatch/top-picks:
+    get:
+      operationId: getTopPicks
+      tags: [ghostwatch]
+      summary: Top 5 highest-confidence picks across all sports
+      responses:
+        "200":
+          description: Top picks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pick"
+
+  # ─── Ghost Express Live In-Game ────────────────────────────────────────────
+  /ghost-express/live-picks:
+    get:
+      operationId: listLivePicks
+      tags: [ghost-express]
+      summary: Live in-game recommended props
+      parameters:
+        - name: gameId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Live picks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LivePick"
+
+  /ghost-express/live-games:
+    get:
+      operationId: listLiveGames
+      tags: [ghost-express]
+      summary: Currently live games with scores and signals
+      responses:
+        "200":
+          description: Live games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LiveGame"
+
+  /ghost-express/signals:
+    get:
+      operationId: listSignals
+      tags: [ghost-express]
+      summary: Momentum and usage signals for a game
+      parameters:
+        - name: gameId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Signal"
+
+  # ─── Ghostspere Automation Butler ─────────────────────────────────────────
+  /ghostspere/tickets:
+    get:
+      operationId: listTickets
+      tags: [ghostspere]
+      summary: Auto-built prop combo tickets from Ghostwatch/Ghost Express picks
+      parameters:
+        - name: riskTier
+          in: query
+          schema: { type: string, enum: [Safe, Balanced, Aggressive] }
+      responses:
+        "200":
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Ticket"
+
+  /ghostspere/send-email:
+    post:
+      operationId: sendTicketEmail
+      tags: [ghostspere]
+      summary: Send selected tickets to user email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailResult"
+
+  # ─── Ghostobservation Social & News Intel ─────────────────────────────────
+  /ghostobservation/alerts:
+    get:
+      operationId: listAlerts
+      tags: [ghostobservation]
+      summary: Social and news alerts per player and team
+      parameters:
+        - name: playerId
+          in: query
+          schema: { type: string }
+        - name: teamId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SocialAlert"
+
+  /ghostobservation/player-scores:
+    get:
+      operationId: listPlayerSocialScores
+      tags: [ghostobservation]
+      summary: Social impact scores for all players
+      responses:
+        "200":
+          description: Player social scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlayerSocialScore"
+
+  /ghostobservation/team-pulse:
+    get:
+      operationId: listTeamPulse
+      tags: [ghostobservation]
+      summary: Team chemistry and drama scores
+      responses:
+        "200":
+          description: Team pulse
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamPulse"
+
+  # ─── User Settings ─────────────────────────────────────────────────────────
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get current user settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update user settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
+        status: { type: string }
 
+    # ─── Ghostwatch ──────────────────────────────────────────────────────────
+    Pick:
+      type: object
+      required: [id, playerName, team, opponent, propType, line, projection, confidence, riskTier, explanation, sport, createdAt]
+      properties:
+        id: { type: string }
+        playerName: { type: string }
+        team: { type: string }
+        opponent: { type: string }
+        sport: { type: string }
+        propType: { type: string }
+        line: { type: number }
+        direction: { type: string, enum: [Over, Under] }
+        projection: { type: number }
+        confidence: { type: number }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        explanation: { type: string }
+        socialImpact: { type: ["number", "null"] }
+        createdAt: { type: string }
+
+    PicksSummary:
+      type: object
+      required: [totalPicks, byRiskTier, bySport, avgConfidence, topSport]
+      properties:
+        totalPicks: { type: number }
+        byRiskTier:
+          type: object
+          properties:
+            Safe: { type: number }
+            Balanced: { type: number }
+            Aggressive: { type: number }
+        bySport:
+          type: array
+          items:
+            type: object
+            required: [sport, count]
+            properties:
+              sport: { type: string }
+              count: { type: number }
+        avgConfidence: { type: number }
+        topSport: { type: string }
+
+    Game:
+      type: object
+      required: [id, homeTeam, awayTeam, sport, scheduledAt, status]
+      properties:
+        id: { type: string }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        sport: { type: string }
+        scheduledAt: { type: string }
+        status: { type: string, enum: [Scheduled, Live, Final] }
+        homeScore: { type: ["number", "null"] }
+        awayScore: { type: ["number", "null"] }
+        quarter: { type: ["string", "null"] }
+        timeRemaining: { type: ["string", "null"] }
+
+    # ─── Ghost Express ───────────────────────────────────────────────────────
+    LiveGame:
+      type: object
+      required: [id, homeTeam, awayTeam, sport, homeScore, awayScore, quarter, timeRemaining, pace, status]
+      properties:
+        id: { type: string }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        sport: { type: string }
+        homeScore: { type: number }
+        awayScore: { type: number }
+        quarter: { type: string }
+        timeRemaining: { type: string }
+        pace: { type: string, enum: [Slow, Normal, Fast] }
+        status: { type: string, enum: [Live, Halftime, Final] }
+
+    LivePick:
+      type: object
+      required: [id, gameId, playerName, team, propType, line, projection, confidence, explanation, riskTier, sport]
+      properties:
+        id: { type: string }
+        gameId: { type: string }
+        playerName: { type: string }
+        team: { type: string }
+        propType: { type: string }
+        line: { type: number }
+        direction: { type: string, enum: [Over, Under] }
+        projection: { type: number }
+        confidence: { type: number }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        explanation: { type: string }
+        sport: { type: string }
+        detectedSignals: { type: array, items: { type: string } }
+
+    Signal:
+      type: object
+      required: [id, gameId, type, description, strength, playerName, team]
+      properties:
+        id: { type: string }
+        gameId: { type: string }
+        type: { type: string, enum: [PaceSpike, UsageSpike, MismatchDetected, InjuryUpdate, FoulTrouble] }
+        description: { type: string }
+        strength: { type: string, enum: [Low, Medium, High] }
+        playerName: { type: string }
+        team: { type: string }
+
+    # ─── Ghostspere ──────────────────────────────────────────────────────────
+    Ticket:
+      type: object
+      required: [id, riskTier, picks, combinedConfidence, sport, createdAt]
+      properties:
+        id: { type: string }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        picks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pick"
+        combinedConfidence: { type: number }
+        sport: { type: string }
+        createdAt: { type: string }
+
+    EmailRequest:
+      type: object
+      required: [email, ticketIds]
+      properties:
+        email: { type: string }
+        ticketIds:
+          type: array
+          items: { type: string }
+        sport: { type: string }
+
+    EmailResult:
+      type: object
+      required: [success, message]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+
+    # ─── Ghostobservation ────────────────────────────────────────────────────
+    SocialAlert:
+      type: object
+      required: [id, playerId, playerName, team, alertType, description, severity, createdAt]
+      properties:
+        id: { type: string }
+        playerId: { type: string }
+        playerName: { type: string }
+        team: { type: string }
+        alertType: { type: string, enum: [PartyRisk, FatigueRisk, MotivationBoost, InjuryConcern, DramaAlert, TravelFatigue] }
+        description: { type: string }
+        severity: { type: string, enum: [Low, Medium, High] }
+        source: { type: string }
+        createdAt: { type: string }
+
+    PlayerSocialScore:
+      type: object
+      required: [playerId, playerName, team, sport, socialImpactScore, flags, updatedAt]
+      properties:
+        playerId: { type: string }
+        playerName: { type: string }
+        team: { type: string }
+        sport: { type: string }
+        socialImpactScore: { type: number }
+        flags:
+          type: array
+          items: { type: string }
+        updatedAt: { type: string }
+
+    TeamPulse:
+      type: object
+      required: [teamId, teamName, sport, chemistryScore, dramaLevel, travelFatigue, recentAlerts]
+      properties:
+        teamId: { type: string }
+        teamName: { type: string }
+        sport: { type: string }
+        chemistryScore: { type: number }
+        dramaLevel: { type: string, enum: [Low, Medium, High] }
+        travelFatigue: { type: string, enum: [None, Moderate, Severe] }
+        recentAlerts: { type: number }
+        notes: { type: ["string", "null"] }
+
+    # ─── User Settings ────────────────────────────────────────────────────────
+    UserSettings:
+      type: object
+      required: [id, email, preferredSports, riskProfile, picksPerTicket, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        preferredSports:
+          type: array
+          items: { type: string }
+        riskProfile: { type: string, enum: [Safe, Balanced, Aggressive] }
+        picksPerTicket: { type: number }
+        emailNotifications: { type: boolean }
+        createdAt: { type: string }
+
+    UserSettingsInput:
+      type: object
+      properties:
+        email: { type: string }
+        preferredSports:
+          type: array
+          items: { type: string }
+        riskProfile: { type: string, enum: [Safe, Balanced, Aggressive] }
+        picksPerTicket: { type: number }
+        emailNotifications: { type: boolean }

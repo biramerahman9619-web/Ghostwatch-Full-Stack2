@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-safe: hsl(var(--safe));
+  --color-safe-foreground: hsl(var(--safe-foreground));
+  --color-balanced: hsl(var(--balanced));
+  --color-balanced-foreground: hsl(var(--balanced-foreground));
+  --color-aggressive: hsl(var(--aggressive));
+  --color-aggressive-foreground: hsl(var(--aggressive-foreground));
+
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 1rem;
+}
+
+:root {
+  --background: 224 71% 4%;
+  --foreground: 213 31% 91%;
+  
+  --card: 224 71% 6%;
+  --card-foreground: 213 31% 91%;
+  --card-border: 215 28% 17%;
+  
+  --popover: 224 71% 6%;
+  --popover-foreground: 215 20% 65%;
+  --popover-border: 215 28% 17%;
+
+  --primary: 184 100% 50%;
+  --primary-foreground: 224 71% 4%;
+  
+  --secondary: 215 28% 17%;
+  --secondary-foreground: 213 31% 91%;
+  
+  --muted: 215 28% 17%;
+  --muted-foreground: 215 20% 65%;
+  
+  --accent: 184 100% 15%;
+  --accent-foreground: 184 100% 50%;
+  
+  --destructive: 350 100% 55%;
+  --destructive-foreground: 213 31% 91%;
+
+  --safe: 142 71% 45%;
+  --safe-foreground: 142 71% 10%;
+  --balanced: 41 96% 56%;
+  --balanced-foreground: 41 96% 10%;
+  --aggressive: 350 100% 55%;
+  --aggressive-foreground: 350 100% 10%;
+
+  --border: 215 28% 17%;
+  --input: 215 28% 17%;
+  --ring: 184 100% 50%;
+  
+  --radius: 0.25rem;
+}
+
+.dark {
+  /* Enforcing dark mode as default/only mode */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground selection:bg-primary/30;
+  }
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Radar ping animation */
+@keyframes ping-slow {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+.animate-ping-slow {
+  animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}

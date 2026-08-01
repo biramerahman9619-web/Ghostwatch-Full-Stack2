@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Ghostwatch"
+description = "Ghostwatch is an AI-powered sports betting assistant. It ingests live sports data and odds, runs algorithms to generate recommended player prop picks classified by risk tier (Safe/Balanced/Aggressive), displays live in-game signals, automates ticket building and email delivery, and monitors social/news intel for player and team alerts."
+version = "1.0.0"
+id = "artifacts/ghostwatch"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23117
+
+[services.development]
+run = "pnpm --filter @workspace/ghostwatch run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ghostwatch", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ghostwatch/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23117"
+BASE_PATH = "/"
