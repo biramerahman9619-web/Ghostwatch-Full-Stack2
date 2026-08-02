@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import nodemailer from "nodemailer";
+import { isSmtpConfigured, getTransport } from "../lib/emailTransport.js";
 import { eq, isNull } from "drizzle-orm";
 import { db, userSettingsTable } from "@workspace/db";
 import {
@@ -52,33 +52,6 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
-// ─── SMTP transport (lazy-initialised so missing creds don't crash startup) ───
-
-let _transport: nodemailer.Transporter | null = null;
-
-function isSmtpConfigured(): boolean {
-  return !!(
-    process.env["SMTP_HOST"] &&
-    process.env["SMTP_USER"] &&
-    process.env["SMTP_PASS"]
-  );
-}
-
-function getTransport(): nodemailer.Transporter {
-  if (!_transport) {
-    const port = Number(process.env["SMTP_PORT"] ?? "587");
-    _transport = nodemailer.createTransport({
-      host: process.env["SMTP_HOST"],
-      port,
-      secure: port === 465,
-      auth: {
-        user: process.env["SMTP_USER"],
-        pass: process.env["SMTP_PASS"],
-      },
-    });
-  }
-  return _transport;
-}
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
