@@ -225,6 +225,207 @@ function computePlayerStat(
   return { value: total, rawStats: rawParts.join(" ") };
 }
 
+// ─── Player recent form / gamelog ─────────────────────────────────────────────
+
+export interface PlayerGameEntry {
+  date: string;
+  opponent: string;
+  homeAway: "home" | "away";
+  statValue: number;
+  rawStats: string;
+}
+
+export interface PlayerFormSummary {
+  athleteId: string;
+  displayName: string;
+  status: "Active" | "Questionable" | "Doubtful" | "Out" | "Unknown";
+  injuryNote: string | null;
+  last5: PlayerGameEntry[];
+  avg5: number | null;
+  trend: "Hot" | "Cold" | "Neutral";
+  gamesAboveLine: number;
+  gamesBelowLine: number;
+}
+
+// Short-lived cache (4 h) — status can change, so refresh more often than box scores
+interface CachedForm { summary: PlayerFormSummary; ts: number; }
+const formCache = new Map<string, CachedForm>();
+const FORM_CACHE_TTL = 4 * 60 * 60 * 1000;
+
+/** Find an ESPN athlete ID by display name. Uses the public search endpoint. */
+async function searchAthleteId(name: string, sport: string): Promise<{ id: string; displayName: string } | null> {
+  const sportSlug = sport.split("/")[0] ?? "basketball";
+  const url = `https://site.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(name)}&limit=6&type=athlete&sport=${sportSlug}`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!resp.ok) return null;
+    const data: any = await resp.json();
+    // ESPN returns { results: [{ type, items: [...] }] } or { athletes: [...] }
+    const sections: any[] = Array.isArray(data.results) ? data.results : [];
+    for (const section of sections) {
+      const items: any[] = section.items ?? section.results ?? [];
+      for (const item of items) {
+        const dName: string = item.displayName ?? item.fullName ?? "";
+        if (normTeam(dName).includes(normTeam(name)) || normTeam(name).includes(normTeam(dName))) {
+          return { id: String(item.id ?? item.athleteId ?? ""), displayName: dName };
+        }
+      }
+    }
+    return null;
+  } catch (err: any) {
+    logger.debug({ msg: "ESPN athlete search failed", name, err: err?.message });
+    return null;
+  }
+}
+
+/** Fetch player injury / availability status from the ESPN athlete endpoint. */
+async function fetchAthleteStatus(
+  athleteId: string,
+  sportPath: string,
+): Promise<{ status: PlayerFormSummary["status"]; note: string | null }> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/athletes/${athleteId}`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!resp.ok) return { status: "Unknown", note: null };
+    const data: any = await resp.json();
+    const athlete = data.athlete ?? data;
+    const statusObj = athlete.status ?? athlete.injuries?.[0] ?? null;
+    if (!statusObj) return { status: "Active", note: null };
+    const typeStr: string = (statusObj.type?.name ?? statusObj.type ?? "").toLowerCase();
+    let status: PlayerFormSummary["status"] = "Active";
+    if (typeStr.includes("out") || typeStr.includes("ir")) status = "Out";
+    else if (typeStr.includes("doubtful")) status = "Doubtful";
+    else if (typeStr.includes("questionable")) status = "Questionable";
+    const note: string | null =
+      statusObj.shortComment ?? statusObj.longComment ?? statusObj.description ?? null;
+    return { status, note };
+  } catch {
+    return { status: "Unknown", note: null };
+  }
+}
+
+/**
+ * Fetch a player's recent game log from ESPN and extract the stat relevant to
+ * the given propType. Returns up to the 5 most recent games.
+ */
+async function fetchAthleteGameLog(
+  athleteId: string,
+  sportPath: string,
+  propType: string,
+): Promise<PlayerGameEntry[]> {
+  const def = PROP_STAT_MAP[propType];
+  if (!def) return [];
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/athletes/${athleteId}/gamelog`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return [];
+    const data: any = await resp.json();
+    const entries: PlayerGameEntry[] = [];
+
+    // Structure: data.seasonTypes[].categories[].{ labels, events[].{ atVs, opponent, gameDate, stats } }
+    for (const st of (data.seasonTypes ?? [])) {
+      for (const cat of (st.categories ?? [])) {
+        const labels: string[] = cat.labels ?? [];
+        // Check that at least one of our target labels is in this category
+        const hasLabel = def.labels.some((l) => labels.includes(l));
+        if (!hasLabel) continue;
+        // For NFL: enforce groupAnchor so passing stats don't bleed into rushing
+        if (def.groupAnchor && !labels.includes(def.groupAnchor)) continue;
+
+        for (const ev of (cat.events ?? [])) {
+          const statsArr: string[] = ev.stats ?? [];
+          let total = 0;
+          const rawParts: string[] = [];
+          let missing = false;
+          for (const label of def.labels) {
+            const idx = labels.indexOf(label);
+            if (idx === -1) { missing = true; break; }
+            const raw = statsArr[idx] ?? "0";
+            rawParts.push(`${label}:${raw}`);
+            total += parseStat(raw, propType === "Pass Attempts");
+          }
+          if (missing) continue;
+
+          const oppName: string = ev.opponent?.displayName ?? ev.opponent?.abbreviation ?? "?";
+          const isAway = ev.atVs === "@";
+          const dateStr: string = ev.gameDate ?? ev.date ?? "";
+          entries.push({
+            date: dateStr,
+            opponent: isAway ? `@ ${oppName}` : `vs ${oppName}`,
+            homeAway: isAway ? "away" : "home",
+            statValue: Math.round(total * 10) / 10,
+            rawStats: rawParts.join(" "),
+          });
+        }
+      }
+    }
+
+    // Sort most recent first, keep 5
+    entries.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
+    return entries.slice(0, 5);
+  } catch (err: any) {
+    logger.debug({ msg: "ESPN gamelog fetch failed", athleteId, sportPath, err: err?.message });
+    return [];
+  }
+}
+
+/**
+ * Fetch a player's last-5-games form + injury status for a given prop type and line.
+ * Returns null when the sport/prop combination is unsupported or ESPN can't find the athlete.
+ */
+export async function getPlayerRecentForm(
+  playerName: string,
+  sport: string,
+  propType: string,
+  line: number,
+): Promise<PlayerFormSummary | null> {
+  const sportPath = SPORT_PATH[sport.toUpperCase()];
+  if (!sportPath) return null;
+  if (!PROP_STAT_MAP[propType]) return null;
+
+  const cacheKey = `form:${sport}:${playerName}:${propType}`;
+  const cached = formCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < FORM_CACHE_TTL) return cached.summary;
+
+  const found = await searchAthleteId(playerName, sportPath);
+  if (!found) return null;
+
+  // Fetch status and gamelog in parallel
+  const [statusInfo, last5] = await Promise.all([
+    fetchAthleteStatus(found.id, sportPath),
+    fetchAthleteGameLog(found.id, sportPath, propType),
+  ]);
+
+  const gamesAboveLine = last5.filter((g) => g.statValue > line).length;
+  const gamesBelowLine = last5.filter((g) => g.statValue < line).length;
+  const avg5 =
+    last5.length > 0
+      ? Math.round((last5.reduce((s, g) => s + g.statValue, 0) / last5.length) * 10) / 10
+      : null;
+
+  let trend: "Hot" | "Cold" | "Neutral" = "Neutral";
+  const threshold = Math.ceil(last5.length * 0.6); // 60% threshold
+  if (last5.length >= 3) {
+    if (gamesAboveLine >= threshold) trend = "Hot";
+    else if (gamesBelowLine >= threshold) trend = "Cold";
+  }
+
+  const summary: PlayerFormSummary = {
+    athleteId: found.id,
+    displayName: found.displayName,
+    status: statusInfo.status,
+    injuryNote: statusInfo.note,
+    last5,
+    avg5,
+    trend,
+    gamesAboveLine,
+    gamesBelowLine,
+  };
+
+  formCache.set(cacheKey, { summary, ts: Date.now() });
+  return summary;
+}
+
 // ─── Public auto-settle function ───────────────────────────────────────────────
 
 export interface AutoSettleResult {

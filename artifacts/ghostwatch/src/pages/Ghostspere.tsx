@@ -10,6 +10,8 @@ import {
   useEvaluateAgentTickets,
   useListPickResults,
   useSettlePickResult,
+  useGetPlayerForm,
+  getGetPlayerFormQueryKey,
   getListTicketsQueryKey,
   getGetSettingsQueryKey,
   getGetAgentConfigQueryKey,
@@ -24,6 +26,7 @@ import {
   Bot, Mail, Settings2, SplitSquareHorizontal, Shield, ShieldCheck, ShieldOff,
   Zap, Clock, Send, Activity, MessageSquare, TrendingUp, RefreshCw,
   CheckCircle, XCircle, MinusCircle, Radio, CalendarClock, Trophy,
+  Flame, Snowflake, ChevronDown, ChevronUp, AlertTriangle,
 } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -347,7 +350,17 @@ function PickResultRow({ pick, onSettle }: {
   const isLost = result === "miss";
   const isPush = result === "push";
 
-  // Format the settled stat display: "27 Pts" / "3 REB" etc.
+  // Intel panel state
+  const [showIntel, setShowIntel] = useState(false);
+
+  // Fetch player form on-demand when the Intel panel is opened
+  const formParams = { player: pick.playerName, sport: pick.sport, prop: pick.propType, line: pick.line };
+  const { data: form, isLoading: formLoading } = useGetPlayerForm(
+    formParams,
+    { query: { enabled: showIntel, staleTime: 4 * 60 * 60 * 1000, queryKey: getGetPlayerFormQueryKey(formParams) } },
+  );
+
+  // Format the settled stat display
   const statLine = pick.settledValue != null
     ? `Actual: ${pick.settledValue} (${pick.direction} ${pick.line})`
     : null;
@@ -431,11 +444,27 @@ function PickResultRow({ pick, onSettle }: {
           </div>
         </div>
 
-        {/* Right: confidence + manual settle buttons (only when no result yet) */}
+        {/* Right: confidence + Intel toggle + manual settle */}
         <div className="flex-shrink-0 flex flex-col items-end gap-2">
-          <span className={cn("text-[10px] font-mono font-bold",
-            pick.confidence >= 80 ? "text-emerald-400" : pick.confidence >= 65 ? "text-yellow-400" : "text-muted-foreground"
-          )}>{pick.confidence}%</span>
+          <div className="flex items-center gap-1.5">
+            <span className={cn("text-[10px] font-mono font-bold",
+              pick.confidence >= 80 ? "text-emerald-400" : pick.confidence >= 65 ? "text-yellow-400" : "text-muted-foreground"
+            )}>{pick.confidence}%</span>
+            {/* Intel toggle button */}
+            <button
+              onClick={() => setShowIntel(v => !v)}
+              title="Player form & status"
+              className={cn(
+                "flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded border transition-colors",
+                showIntel
+                  ? "border-primary/60 text-primary bg-primary/10"
+                  : "border-border/40 text-muted-foreground/60 hover:border-primary/40 hover:text-primary/70"
+              )}
+            >
+              {showIntel ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+              Intel
+            </button>
+          </div>
 
           {!result && (isFinal || isLive) && (
             <div className="flex flex-col gap-1">
@@ -458,6 +487,109 @@ function PickResultRow({ pick, onSettle }: {
           )}
         </div>
       </div>
+
+      {/* ── Intel panel: player form + status ── */}
+      {showIntel && (
+        <div className="border-t border-border/40 bg-secondary/20 px-4 py-3">
+          {formLoading && (
+            <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/50">
+              <div className="w-2 h-2 rounded-full bg-primary/40 animate-pulse" />
+              Fetching ESPN form data…
+            </div>
+          )}
+          {!formLoading && !form && (
+            <div className="text-[10px] font-mono text-muted-foreground/40 flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3" />
+              Form data unavailable (ESPN doesn't track this player/prop yet)
+            </div>
+          )}
+          {!formLoading && form && (
+            <div className="space-y-2.5">
+              {/* Status row */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Status</span>
+                <span className={cn(
+                  "text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border",
+                  form.status === "Active"       ? "text-emerald-400 border-emerald-400/40 bg-emerald-400/10" :
+                  form.status === "Questionable" ? "text-yellow-400 border-yellow-400/40 bg-yellow-400/10"   :
+                  form.status === "Doubtful"     ? "text-orange-400 border-orange-400/40 bg-orange-400/10"   :
+                  form.status === "Out"          ? "text-red-400 border-red-400/40 bg-red-400/10"            :
+                                                   "text-muted-foreground border-border/40"
+                )}>{form.status}</span>
+                {form.injuryNote && (
+                  <span className="text-[9px] font-mono text-muted-foreground/60 truncate max-w-[180px]" title={form.injuryNote}>
+                    {form.injuryNote}
+                  </span>
+                )}
+              </div>
+
+              {/* Trend + avg row */}
+              {form.avg5 != null && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    {form.trend === "Hot"     && <Flame     className="w-3.5 h-3.5 text-orange-400" />}
+                    {form.trend === "Cold"    && <Snowflake className="w-3.5 h-3.5 text-sky-400" />}
+                    {form.trend === "Neutral" && <TrendingUp className="w-3.5 h-3.5 text-muted-foreground/60" />}
+                    <span className={cn("text-[10px] font-mono font-bold",
+                      form.trend === "Hot"  ? "text-orange-400" :
+                      form.trend === "Cold" ? "text-sky-400"    : "text-muted-foreground"
+                    )}>{form.trend}</span>
+                  </div>
+                  <span className="text-[9px] font-mono text-muted-foreground">
+                    L{form.last5.length}G avg{" "}
+                    <span className={cn("font-bold",
+                      (form.avg5 ?? 0) > pick.line ? "text-emerald-400" : (form.avg5 ?? 0) < pick.line ? "text-red-400" : "text-foreground"
+                    )}>{form.avg5}</span>
+                    {" "}vs line <span className="text-primary">{pick.line}</span>
+                  </span>
+                  <span className="text-[9px] font-mono text-muted-foreground/50">
+                    {form.gamesAboveLine}/{form.last5.length} over · {form.gamesBelowLine}/{form.last5.length} under
+                  </span>
+                </div>
+              )}
+
+              {/* Last-5 game bars */}
+              {form.last5.length > 0 && (
+                <div>
+                  <div className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest mb-1.5">Last {form.last5.length} games</div>
+                  <div className="flex items-end gap-1.5">
+                    {form.last5.map((game, idx) => {
+                      const overLine = game.statValue > pick.line;
+                      const atLine   = game.statValue === pick.line;
+                      const pct = pick.line > 0
+                        ? Math.min(100, Math.max(8, Math.round((game.statValue / (pick.line * 1.6)) * 100)))
+                        : 50;
+                      return (
+                        <div key={idx} className="flex flex-col items-center gap-1 flex-1 min-w-0 group" title={`${game.opponent}: ${game.statValue} (${game.rawStats})`}>
+                          <span className={cn("text-[8px] font-mono font-bold",
+                            overLine ? "text-emerald-400" : atLine ? "text-amber-400" : "text-red-400"
+                          )}>{game.statValue}</span>
+                          <div className="w-full rounded-sm overflow-hidden" style={{ height: 28 }}>
+                            <div
+                              className={cn("w-full rounded-sm transition-all",
+                                overLine ? "bg-emerald-500/60" : atLine ? "bg-amber-400/60" : "bg-red-500/50"
+                              )}
+                              style={{ height: `${pct}%`, minHeight: 4 }}
+                            />
+                          </div>
+                          <span className="text-[7px] font-mono text-muted-foreground/40 truncate w-full text-center leading-tight">
+                            {game.opponent.replace(/^(vs |@ )/, "")}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {/* Dashed line at pick.line for visual reference */}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1">
+                    <div className="flex-1 border-t border-dashed border-primary/20" />
+                    <span className="text-[7px] font-mono text-primary/40">line {pick.line}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

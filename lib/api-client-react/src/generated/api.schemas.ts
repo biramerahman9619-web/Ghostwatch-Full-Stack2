@@ -453,6 +453,56 @@ export interface AgentChatInput {
   message: string;
 }
 
+export type PlayerFormGameHomeAway = typeof PlayerFormGameHomeAway[keyof typeof PlayerFormGameHomeAway];
+
+
+export const PlayerFormGameHomeAway = {
+  home: 'home',
+  away: 'away',
+} as const;
+
+export interface PlayerFormGame {
+  date: string;
+  opponent: string;
+  homeAway: PlayerFormGameHomeAway;
+  statValue: number;
+  rawStats: string;
+}
+
+export type PlayerFormSummaryStatus = typeof PlayerFormSummaryStatus[keyof typeof PlayerFormSummaryStatus];
+
+
+export const PlayerFormSummaryStatus = {
+  Active: 'Active',
+  Questionable: 'Questionable',
+  Doubtful: 'Doubtful',
+  Out: 'Out',
+  Unknown: 'Unknown',
+} as const;
+
+export type PlayerFormSummaryTrend = typeof PlayerFormSummaryTrend[keyof typeof PlayerFormSummaryTrend];
+
+
+export const PlayerFormSummaryTrend = {
+  Hot: 'Hot',
+  Cold: 'Cold',
+  Neutral: 'Neutral',
+} as const;
+
+export interface PlayerFormSummary {
+  athleteId: string;
+  displayName: string;
+  status: PlayerFormSummaryStatus;
+  /** @nullable */
+  injuryNote?: string | null;
+  last5: PlayerFormGame[];
+  /** @nullable */
+  avg5?: number | null;
+  trend: PlayerFormSummaryTrend;
+  gamesAboveLine: number;
+  gamesBelowLine: number;
+}
+
 export type PickWithResultDirection = typeof PickWithResultDirection[keyof typeof PickWithResultDirection];
 
 
@@ -840,6 +890,13 @@ export const ListTicketsRiskTier = {
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
 } as const;
+
+export type GetPlayerFormParams = {
+player: string;
+sport: string;
+prop: string;
+line: number;
+};
 
 export type ListAlertsParams = {
 playerId?: string;

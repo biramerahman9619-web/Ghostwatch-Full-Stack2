@@ -32,6 +32,7 @@ import type {
   EmailResult,
   ErrorEnvelope,
   Game,
+  GetPlayerFormParams,
   HandleBrowserLoginCallbackParams,
   HealthStatus,
   ListAlertsParams,
@@ -56,6 +57,7 @@ import type {
   PickWithResult,
   PicksRefreshStatus,
   PicksSummary,
+  PlayerFormSummary,
   PlayerSocialScore,
   PortalPicksPreview,
   PortalStats,
@@ -2335,6 +2337,90 @@ export const useEvaluateAgentTickets = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getEvaluateAgentTicketsMutationOptions(options));
     }
+
+export const getGetPlayerFormUrl = (params: GetPlayerFormParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ghostspere/player-form?${stringifiedParams}` : `/api/ghostspere/player-form`
+}
+
+/**
+ * @summary Fetch a player's last-5-games form + injury status for a given prop type and line
+ */
+export const getPlayerForm = async (params: GetPlayerFormParams, options?: Parameters<typeof customFetch>[1]): Promise<PlayerFormSummary> => {
+
+  return customFetch<PlayerFormSummary>(getGetPlayerFormUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlayerFormQueryKey = (params?: GetPlayerFormParams,) => {
+    return [
+    `/api/ghostspere/player-form`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetPlayerFormQueryOptions = <TData = Awaited<ReturnType<typeof getPlayerForm>>, TError = ErrorType<void>>(params: GetPlayerFormParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerForm>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlayerFormQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlayerForm>>> = ({ signal }) => getPlayerForm(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlayerForm>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlayerFormQueryResult = NonNullable<Awaited<ReturnType<typeof getPlayerForm>>>
+export type GetPlayerFormQueryError = ErrorType<void>
+
+
+/**
+ * @summary Fetch a player's last-5-games form + injury status for a given prop type and line
+ */
+
+export function useGetPlayerForm<TData = Awaited<ReturnType<typeof getPlayerForm>>, TError = ErrorType<void>>(
+ params: GetPlayerFormParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerForm>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlayerFormQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListPickResultsUrl = () => {
 

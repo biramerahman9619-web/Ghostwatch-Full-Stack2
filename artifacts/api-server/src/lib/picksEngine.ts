@@ -13,6 +13,7 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { batchProcess } from "@workspace/integrations-openai-ai-server/batch";
 import { logger } from "./logger.js";
+import { getPlayerRecentForm, type PlayerFormSummary } from "./espnStats.js";
 import type {
   OddsApiEventWithOdds,
   OddsApiMarket,
@@ -65,6 +66,9 @@ export interface GeneratedPick {
   impliedProbability?: number;
 
   avgAmericanOdds?: number;
+
+  /** ESPN recent form — populated after AI generation, null when ESPN can't find the player */
+  recentForm?: PlayerFormSummary | null;
 }
 
 export interface GeneratedLiveGame {
@@ -570,7 +574,72 @@ export async function generatePicksFromOdds(
     "AI picks generated",
   );
 
-  return deduped;
+  // Enrich picks with ESPN recent form (best-effort, parallel, does not block on failure)
+  const enriched = await enrichPicksWithForm(deduped);
+
+  logger.info(
+    { sport: sportTitle, enriched: enriched.filter(p => p.recentForm).length },
+    "Pick form enrichment complete",
+  );
+
+  return enriched;
+}
+
+// ─── Form enrichment ──────────────────────────────────────────────────────────
+
+/**
+ * Fetch recent form for every AI-generated pick (in parallel) and adjust
+ * confidence + explanation accordingly.
+ *
+ * Rules:
+ *  - 🔥 Hot  (≥60% of last-5 over the line): +4 confidence
+ *  - ❄️ Cold (≥60% of last-5 under the line): −4 confidence
+ *  - ⚠️ Questionable: −8 confidence
+ *  - 🚫 Doubtful/Out: −20 confidence (effectively removes from Safe tier)
+ *  - Picks that drop below 50 are clamped to 50, but the riskTier reflects the penalty.
+ */
+async function enrichPicksWithForm(picks: GeneratedPick[]): Promise<GeneratedPick[]> {
+  const formResults = await Promise.allSettled(
+    picks.map((p) => getPlayerRecentForm(p.playerName, p.sport, p.propType, p.line)),
+  );
+
+  return picks.map((pick, i) => {
+    const res = formResults[i];
+    if (res?.status !== "fulfilled" || !res.value) {
+      return { ...pick, recentForm: null };
+    }
+    const form = res.value;
+
+    // Confidence delta
+    let delta = 0;
+    if (form.trend === "Hot") delta += 4;
+    else if (form.trend === "Cold") delta -= 4;
+    if (form.status === "Out" || form.status === "Doubtful") delta -= 20;
+    else if (form.status === "Questionable") delta -= 8;
+
+    const newConf = Math.min(95, Math.max(50, pick.confidence + delta));
+    const newTier: "Safe" | "Balanced" | "Aggressive" =
+      newConf >= 72 ? "Safe" : newConf >= 62 ? "Balanced" : "Aggressive";
+
+    // Build a one-line form prefix for the explanation
+    const trendIcon = form.trend === "Hot" ? "🔥" : form.trend === "Cold" ? "❄️" : "📊";
+    const formLine =
+      form.avg5 !== null
+        ? `${trendIcon} L${form.last5.length}G avg ${form.avg5} vs ${pick.line} line (${form.gamesAboveLine}/${form.last5.length} over). `
+        : "";
+    const statusLine =
+      form.status !== "Active" && form.status !== "Unknown"
+        ? `⚠️ ${form.status}${form.injuryNote ? `: ${form.injuryNote}` : ""}. `
+        : "";
+
+    return {
+      ...pick,
+      confidence: newConf,
+      riskTier: newTier,
+      explanation: `${statusLine}${formLine}${pick.explanation}`,
+      recentForm: form,
+    };
+  });
 }
 
 export interface GeneratedGame {
