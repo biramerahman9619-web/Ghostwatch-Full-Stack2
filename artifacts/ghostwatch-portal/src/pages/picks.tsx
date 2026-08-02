@@ -1,8 +1,8 @@
 import { useGetPortalPicksPreview } from "@workspace/api-client-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useLocation } from "wouter";
-import { Activity, useEffect } from "react";
-import { Lock, ShieldAlert, CheckCircle2, AlertTriangle, Crosshair, ArrowUpRight } from "lucide-react";
+import { useEffect } from "react";
+import { Activity, Lock, ShieldAlert, CheckCircle2, AlertTriangle, Crosshair, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Picks() {
@@ -184,7 +184,7 @@ export default function Picks() {
 
 function TargetIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinelinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
   );
 }
 
