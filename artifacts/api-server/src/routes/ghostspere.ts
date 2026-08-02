@@ -8,7 +8,8 @@ import {
   SendTicketEmailBody,
   SendTicketEmailResponse,
 } from "@workspace/api-zod";
-import { getTickets } from "../lib/sportsCache.js";
+import { getPicks } from "../lib/sportsCache.js";
+import { buildTicketsFromPicks } from "../lib/picksEngine.js";
 import { buildEmailHtml, buildEmailText } from "../lib/emailTemplate.js";
 import { logger } from "../lib/logger.js";
 
@@ -88,7 +89,24 @@ router.get("/ghostspere/tickets", async (req, res): Promise<void> => {
     return;
   }
 
-  let tickets = [...getTickets()];
+  // Read the authenticated user's picksPerTicket setting; fall back to 3.
+  let picksPerTicket = 3;
+  if (req.isAuthenticated()) {
+    const rows = await db
+      .select({ picksPerTicket: userSettingsTable.picksPerTicket })
+      .from(userSettingsTable)
+      .where(eq(userSettingsTable.userId, req.user.id))
+      .limit(1);
+    if (rows[0]?.picksPerTicket) {
+      picksPerTicket = Math.min(6, Math.max(3, Number(rows[0].picksPerTicket)));
+    }
+  }
+
+  // Generate tickets on-the-fly so the user's picks-per-ticket setting is
+  // reflected immediately without waiting for the next cache refresh.
+  const picks = getPicks();
+  let tickets = buildTicketsFromPicks(picks, picksPerTicket);
+
   if (query.data.riskTier) {
     tickets = tickets.filter((t) => t.riskTier === query.data.riskTier);
   }

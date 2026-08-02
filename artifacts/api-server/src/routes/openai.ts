@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, conversations, messages } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { getPicks, getCacheStatus } from "../lib/sportsCache.js";
 import {
   ListOpenaiConversationsResponse,
   CreateOpenaiConversationBody,
@@ -44,7 +45,63 @@ const GHOSTPHERE_SYSTEM_PROMPT = `You are Ghostphere — an elite AI sports bett
 
 Your personality: precise, data-driven, direct. You think like a professional handicapper. You back every recommendation with reasoning. No fluff — just signal.
 
-You have access to today's Ghostwatch picks, Ghost Express live signals, Ghostspere ticket recommendations, and Ghostobservation social intel through this conversation. When users ask about specific players, games, or props, analyze them thoroughly. Help users build winning tickets.`;
+When answering questions about today's picks, use the LIVE GHOSTWATCH DATA block that will be appended to this prompt — it contains the current picks loaded from The Odds API. Help users build winning tickets from this real data.`;
+
+function buildLivePicksContext(): string {
+  const status = getCacheStatus();
+  const picks = getPicks();
+
+  if (!picks.length) {
+    return "\n\n[GHOSTWATCH DATA: No picks currently loaded — data may be refreshing.]";
+  }
+
+  const byTier = {
+    Safe: picks.filter((p) => p.riskTier === "Safe").length,
+    Balanced: picks.filter((p) => p.riskTier === "Balanced").length,
+    Aggressive: picks.filter((p) => p.riskTier === "Aggressive").length,
+  };
+
+  const bySport: Record<string, number> = {};
+  for (const p of picks) {
+    bySport[p.sport] = (bySport[p.sport] ?? 0) + 1;
+  }
+  const sportSummary = Object.entries(bySport)
+    .sort((a, b) => b[1] - a[1])
+    .map(([s, n]) => `${s}: ${n}`)
+    .join(" | ");
+
+  const topPicks = [...picks]
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 10);
+
+  const pickLines = topPicks
+    .map(
+      (p) =>
+        `  • ${p.playerName} — ${p.direction} ${p.line} ${p.propType} | ${p.sport} | ${p.confidence}% conf | ${p.riskTier} | ${p.team}`,
+    )
+    .join("\n");
+
+  const refreshed = status.lastRefreshedAt
+    ? new Date(status.lastRefreshedAt).toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit",
+        month: "short",
+        day: "numeric",
+      })
+    : "not yet refreshed";
+
+  return `
+
+LIVE GHOSTWATCH DATA (last updated ${refreshed} ET | ${status.source}):
+Total picks: ${picks.length} | Safe: ${byTier.Safe} | Balanced: ${byTier.Balanced} | Aggressive: ${byTier.Aggressive}
+Sports coverage: ${sportSummary}
+
+Top 10 picks by confidence:
+${pickLines}
+
+Full pick list available if user asks for all picks. Use the above data to answer questions about today's slate, build ticket constructions, and analyze specific props.`;
+}
 
 // ─── List conversations (scoped to authenticated user) ────────────────────────
 
@@ -229,7 +286,7 @@ router.post("/openai/conversations/:id/messages", async (req, res): Promise<void
     .orderBy(messages.createdAt);
 
   const chatMessages: ChatMessage[] = [
-    { role: "system", content: GHOSTPHERE_SYSTEM_PROMPT },
+    { role: "system", content: GHOSTPHERE_SYSTEM_PROMPT + buildLivePicksContext() },
     ...history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
@@ -243,8 +300,8 @@ router.post("/openai/conversations/:id/messages", async (req, res): Promise<void
   let fullResponse = "";
 
   const stream = await openai.chat.completions.create({
-    model: "gpt-5.6-terra",
-    max_completion_tokens: 8192,
+    model: "gpt-4o",
+    max_completion_tokens: 4096,
     messages: chatMessages,
     stream: true,
   });
