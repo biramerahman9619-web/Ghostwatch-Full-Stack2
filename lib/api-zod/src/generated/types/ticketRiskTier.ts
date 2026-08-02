@@ -13,4 +13,5 @@ export const TicketRiskTier = {
   Safe: 'Safe',
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
+  Mixed: 'Mixed',
 } as const;
