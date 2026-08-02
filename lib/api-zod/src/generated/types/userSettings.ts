@@ -5,6 +5,7 @@
  * Ghostwatch API — AI-powered sports betting assistant
  * OpenAPI spec version: 0.1.0
  */
+import type { UserSettingsEntryType } from './userSettingsEntryType';
 import type { UserSettingsRiskProfile } from './userSettingsRiskProfile';
 
 export interface UserSettings {
@@ -12,6 +13,7 @@ export interface UserSettings {
   email: string;
   preferredSports: string[];
   riskProfile: UserSettingsRiskProfile;
+  entryType?: UserSettingsEntryType;
   picksPerTicket: number;
   emailNotifications?: boolean;
   createdAt: string;

@@ -6,9 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface EmailResult {
-  success: boolean;
-  message: string;
-  dispatched?: number;
-  skipped?: number;
+export interface TicketEvaluation {
+  ticketId: string;
+  aiConfidence: number;
+  reasoning: string;
+  agentWouldSelect: boolean;
 }

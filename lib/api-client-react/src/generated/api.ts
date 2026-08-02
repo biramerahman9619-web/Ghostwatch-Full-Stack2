@@ -20,6 +20,12 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AgentChatInput,
+  AgentConfig,
+  AgentConfigInput,
+  AgentLogEntry,
+  AgentStatus,
+  AgentTicketEvaluations,
   AuthUserEnvelope,
   BeginBrowserLoginParams,
   EmailRequest,
@@ -1952,6 +1958,450 @@ export const useSendTicketEmail = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSendTicketEmailMutationOptions(options));
+    }
+
+export const getGetAgentConfigUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/config`
+}
+
+/**
+ * @summary Get the autonomous agent configuration for the authenticated user
+ */
+export const getAgentConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<AgentConfig> => {
+
+  return customFetch<AgentConfig>(getGetAgentConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentConfigQueryKey = () => {
+    return [
+    `/api/ghostspere/agent/config`
+    ] as const;
+    }
+
+
+export const getGetAgentConfigQueryOptions = <TData = Awaited<ReturnType<typeof getAgentConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentConfig>>> = ({ signal }) => getAgentConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAgentConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentConfig>>>
+export type GetAgentConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the autonomous agent configuration for the authenticated user
+ */
+
+export function useGetAgentConfig<TData = Awaited<ReturnType<typeof getAgentConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAgentConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAgentConfigUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/config`
+}
+
+/**
+ * @summary Update the agent configuration
+ */
+export const updateAgentConfig = async (agentConfigInput: AgentConfigInput, options?: Parameters<typeof customFetch>[1]): Promise<AgentConfig> => {
+
+  return customFetch<AgentConfig>(getUpdateAgentConfigUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(agentConfigInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateAgentConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgentConfig>>, TError,{data: BodyType<AgentConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAgentConfig>>, TError,{data: BodyType<AgentConfigInput>}, TContext> => {
+
+const mutationKey = ['updateAgentConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAgentConfig>>, {data: BodyType<AgentConfigInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAgentConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAgentConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateAgentConfig>>>
+    export type UpdateAgentConfigMutationBody = BodyType<AgentConfigInput>
+    export type UpdateAgentConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the agent configuration
+ */
+export const useUpdateAgentConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgentConfig>>, TError,{data: BodyType<AgentConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAgentConfig>>,
+        TError,
+        {data: BodyType<AgentConfigInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateAgentConfigMutationOptions(options));
+    }
+
+export const getGetAgentStatusUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/status`
+}
+
+/**
+ * @summary Get agent armed status, next run time, and last action
+ */
+export const getAgentStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<AgentStatus> => {
+
+  return customFetch<AgentStatus>(getGetAgentStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentStatusQueryKey = () => {
+    return [
+    `/api/ghostspere/agent/status`
+    ] as const;
+    }
+
+
+export const getGetAgentStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentStatus>>> = ({ signal }) => getAgentStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAgentStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentStatus>>>
+export type GetAgentStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get agent armed status, next run time, and last action
+ */
+
+export function useGetAgentStatus<TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAgentStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAgentLogUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/log`
+}
+
+/**
+ * @summary Get the 50 most recent agent decisions
+ */
+export const listAgentLog = async ( options?: Parameters<typeof customFetch>[1]): Promise<AgentLogEntry[]> => {
+
+  return customFetch<AgentLogEntry[]>(getListAgentLogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAgentLogQueryKey = () => {
+    return [
+    `/api/ghostspere/agent/log`
+    ] as const;
+    }
+
+
+export const getListAgentLogQueryOptions = <TData = Awaited<ReturnType<typeof listAgentLog>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAgentLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAgentLogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAgentLog>>> = ({ signal }) => listAgentLog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAgentLog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAgentLogQueryResult = NonNullable<Awaited<ReturnType<typeof listAgentLog>>>
+export type ListAgentLogQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the 50 most recent agent decisions
+ */
+
+export function useListAgentLog<TData = Awaited<ReturnType<typeof listAgentLog>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAgentLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAgentLogQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getEvaluateAgentTicketsUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/evaluate`
+}
+
+/**
+ * @summary Use AI to score and reason about the current user's tickets
+ */
+export const evaluateAgentTickets = async ( options?: Parameters<typeof customFetch>[1]): Promise<AgentTicketEvaluations> => {
+
+  return customFetch<AgentTicketEvaluations>(getEvaluateAgentTicketsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getEvaluateAgentTicketsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof evaluateAgentTickets>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof evaluateAgentTickets>>, TError,void, TContext> => {
+
+const mutationKey = ['evaluateAgentTickets'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof evaluateAgentTickets>>, void> = () => {
+
+
+          return  evaluateAgentTickets(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EvaluateAgentTicketsMutationResult = NonNullable<Awaited<ReturnType<typeof evaluateAgentTickets>>>
+
+    export type EvaluateAgentTicketsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Use AI to score and reason about the current user's tickets
+ */
+export const useEvaluateAgentTickets = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof evaluateAgentTickets>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof evaluateAgentTickets>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getEvaluateAgentTicketsMutationOptions(options));
+    }
+
+export const getSendAgentChatUrl = () => {
+
+
+
+
+  return `/api/ghostspere/agent/chat`
+}
+
+/**
+ * @summary Send a command to the agent — streams an SSE reply and executes the action
+ */
+export const sendAgentChat = async (agentChatInput: AgentChatInput, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getSendAgentChatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(agentChatInput)
+  }
+);}
+
+
+
+
+
+export const getSendAgentChatMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendAgentChat>>, TError,{data: BodyType<AgentChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendAgentChat>>, TError,{data: BodyType<AgentChatInput>}, TContext> => {
+
+const mutationKey = ['sendAgentChat'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendAgentChat>>, {data: BodyType<AgentChatInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendAgentChat(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendAgentChatMutationResult = NonNullable<Awaited<ReturnType<typeof sendAgentChat>>>
+    export type SendAgentChatMutationBody = BodyType<AgentChatInput>
+    export type SendAgentChatMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send a command to the agent — streams an SSE reply and executes the action
+ */
+export const useSendAgentChat = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendAgentChat>>, TError,{data: BodyType<AgentChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendAgentChat>>,
+        TError,
+        {data: BodyType<AgentChatInput>},
+        TContext
+      > => {
+      return useMutation(getSendAgentChatMutationOptions(options));
     }
 
 export const getListAlertsUrl = (params?: ListAlertsParams,) => {

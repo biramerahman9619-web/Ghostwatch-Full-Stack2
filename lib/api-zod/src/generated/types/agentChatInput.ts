@@ -6,9 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface EmailResult {
-  success: boolean;
+export interface AgentChatInput {
   message: string;
-  dispatched?: number;
-  skipped?: number;
 }
