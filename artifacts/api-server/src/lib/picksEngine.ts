@@ -202,7 +202,23 @@ export function calcWinProbability(
     oneOffProb += missI * restHit;
   }
 
-  return Math.min(1, allHit + oneOffProb);
+  // Flex Play 5+: 2 misses also pay out → add P(exactly 2 misses)
+  let twoOffProb = 0;
+  if (n >= 5) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const missI = 1 - probs[i]!;
+        const missJ = 1 - probs[j]!;
+        const restHit = probs.reduce(
+          (acc, p, k) => (k === i || k === j ? acc : acc * p),
+          1,
+        );
+        twoOffProb += missI * missJ * restHit;
+      }
+    }
+  }
+
+  return Math.min(1, allHit + oneOffProb + twoOffProb);
 }
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
