@@ -373,6 +373,7 @@ export const ListTicketsResponseItem = zod.object({
   "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
   "entryType": zod.enum(['PowerPlay', 'FlexPlay']),
   "payoutMultiplier": zod.number(),
+  "winProbability": zod.number(),
   "picks": zod.array(zod.object({
   "id": zod.string(),
   "playerName": zod.string(),

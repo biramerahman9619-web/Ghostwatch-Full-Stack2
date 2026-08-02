@@ -14,6 +14,7 @@ export interface Ticket {
   riskTier: TicketRiskTier;
   entryType: UserSettingsEntryType;
   payoutMultiplier: number;
+  winProbability: number;
   picks: Pick[];
   combinedConfidence: number;
   sport: string;

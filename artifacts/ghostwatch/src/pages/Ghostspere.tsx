@@ -2,7 +2,7 @@ import { useListTickets, useSendTicketEmail, useGetSettings, useUpdateSettings, 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bot, Mail, Settings2, Shuffle, SplitSquareHorizontal } from "lucide-react";
+import { Bot, Mail, Settings2, SplitSquareHorizontal, TrendingUp } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -47,12 +47,20 @@ function MixedTierSummary({ picks }: { picks: any[] }) {
   );
 }
 
+/** Win-rate colour: green ≥55%, yellow ≥35%, red <35% */
+function winRateColor(pct: number): string {
+  if (pct >= 55) return "text-emerald-400";
+  if (pct >= 35) return "text-yellow-400";
+  return "text-red-400";
+}
+
 function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: () => void, isSelected: boolean }) {
   const isMixed     = ticket.riskTier === 'Mixed';
   const isPP        = (ticket.entryType ?? 'PowerPlay') === 'PowerPlay';
   const pickCount   = ticket.picks?.length ?? 0;
   const multiplier  = ticket.payoutMultiplier ?? entryMultiplier(ticket.entryType ?? 'PowerPlay', pickCount);
   const flexNote    = !isPP ? FP_BREAKDOWN[pickCount] : "";
+  const winPct: number = ticket.winProbability ?? 0;
 
   const entryColor  = isPP
     ? "border-purple-400/40 text-purple-300"
@@ -80,10 +88,21 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
               <span className="text-[9px] font-mono text-muted-foreground/60 pl-0.5">{flexNote}</span>
             )}
           </div>
-          <div className="text-right flex-shrink-0 ml-3">
-            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Payout</div>
-            <div className={cn("font-mono font-bold text-2xl", isPP ? "text-purple-300" : "text-sky-300")}>
-              {multiplier}x
+          {/* Payout + Win Rate */}
+          <div className="text-right flex-shrink-0 ml-3 flex flex-col items-end gap-1">
+            <div className="flex items-baseline gap-2">
+              <div className="text-right">
+                <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Payout</div>
+                <div className={cn("font-mono font-bold text-2xl", isPP ? "text-purple-300" : "text-sky-300")}>
+                  {multiplier}x
+                </div>
+              </div>
+              <div className="text-right pl-3 border-l border-border/40">
+                <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Win Rate</div>
+                <div className={cn("font-mono font-bold text-2xl", winRateColor(winPct))}>
+                  {winPct.toFixed(1)}%
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -95,8 +114,11 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
                 <span className="font-bold truncate">{pick.playerName}</span>
                 <span className="text-muted-foreground shrink-0 text-xs">{pick.propType}</span>
               </div>
-              <div className="font-mono font-medium text-primary shrink-0 ml-2">
-                {pick.direction === 'Over' ? 'O' : 'U'} {pick.line}
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <span className="text-[10px] font-mono text-muted-foreground">{pick.confidence}%</span>
+                <span className="font-mono font-medium text-primary">
+                  {pick.direction === 'Over' ? 'O' : 'U'} {pick.line}
+                </span>
               </div>
             </div>
           ))}
