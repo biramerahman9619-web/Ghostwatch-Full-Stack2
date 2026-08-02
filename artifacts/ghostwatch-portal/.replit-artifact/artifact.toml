@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/ghostwatch-portal/"
+title = "Ghostwatch Portal"
+description = "Public-facing guest portal for Ghostwatch. Features a marketing landing page, login via Replit Auth, email subscription capture, and a limited guest picks dashboard showing top picks of the day. Guests see a curated read-only view — no Ghostspere dispatch or full picks engine access. Designed to convert curious visitors into subscribers."
+version = "1.0.0"
+id = "artifacts/ghostwatch-portal"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/ghostwatch-portal/" ]
+localPort = 20901
+
+[services.development]
+run = "pnpm --filter @workspace/ghostwatch-portal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ghostwatch-portal", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ghostwatch-portal/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20901"
+BASE_PATH = "/ghostwatch-portal/"

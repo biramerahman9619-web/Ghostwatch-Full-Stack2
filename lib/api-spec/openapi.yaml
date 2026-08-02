@@ -26,6 +26,8 @@ tags:
     description: User management
   - name: settings
     description: User settings
+  - name: portal
+    description: Guest portal — public landing, subscribe, and limited picks preview
 
 paths:
   /auth/user:
@@ -502,6 +504,58 @@ paths:
                 items:
                   $ref: "#/components/schemas/TeamPulse"
 
+  # ─── Guest Portal ──────────────────────────────────────────────────────────
+  /portal/subscribe:
+    post:
+      operationId: portalSubscribe
+      tags: [portal]
+      summary: Subscribe a guest email to Ghostwatch updates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortalSubscribeInput"
+      responses:
+        "200":
+          description: Subscription saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalSubscribeResult"
+        "409":
+          description: Already subscribed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /portal/picks/preview:
+    get:
+      operationId: getPortalPicksPreview
+      tags: [portal]
+      summary: Public preview of top picks (limited, no auth required)
+      responses:
+        "200":
+          description: Preview picks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalPicksPreview"
+
+  /portal/stats:
+    get:
+      operationId: getPortalStats
+      tags: [portal]
+      summary: Public social-proof stats (total picks today, sports covered, subscribers)
+      responses:
+        "200":
+          description: Portal stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalStats"
+
   # ─── User Settings ─────────────────────────────────────────────────────────
   /settings:
     get:
@@ -895,3 +949,52 @@ components:
         riskProfile: { type: string, enum: [Safe, Balanced, Aggressive] }
         picksPerTicket: { type: number }
         emailNotifications: { type: boolean }
+
+    # ─── Guest Portal ─────────────────────────────────────────────────────────
+    PortalSubscribeInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string }
+        name: { type: ["string", "null"] }
+
+    PortalSubscribeResult:
+      type: object
+      required: [success, message]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+
+    PortalPickPreview:
+      type: object
+      required: [id, playerName, sport, propType, line, direction, confidence, riskTier]
+      properties:
+        id: { type: string }
+        playerName: { type: string }
+        sport: { type: string }
+        propType: { type: string }
+        line: { type: number }
+        direction: { type: string, enum: [Over, Under] }
+        confidence: { type: number }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        isLocked: { type: boolean }
+
+    PortalPicksPreview:
+      type: object
+      required: [picks, totalAvailable, lockedCount]
+      properties:
+        picks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortalPickPreview"
+        totalAvailable: { type: number }
+        lockedCount: { type: number }
+
+    PortalStats:
+      type: object
+      required: [picksToday, sportsLive, subscribers, avgConfidence]
+      properties:
+        picksToday: { type: number }
+        sportsLive: { type: number }
+        subscribers: { type: number }
+        avgConfidence: { type: number }

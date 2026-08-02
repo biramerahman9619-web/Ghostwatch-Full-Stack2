@@ -190,12 +190,12 @@ export const SendOpenaiMessageResponse = zod.unknown()
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.enum(['ok', 'degraded']),
-  "dataFreshness": zod.enum(['ok', 'stale', 'no_api_key']).optional(),
-  "isStale": zod.boolean().optional(),
-  "lastRefreshedAt": zod.string().nullable().optional(),
-  "consecutiveFailures": zod.number().optional(),
-  "source": zod.enum(['live', 'snapshot', 'mock']).optional(),
+  "status": zod.enum(['ok', 'degraded']).describe('\"ok\" when live data is fresh; \"degraded\" when stale or no API key'),
+  "dataFreshness": zod.enum(['ok', 'stale', 'no_api_key']).optional().describe('\"ok\" fresh live data; \"stale\" real data overdue for refresh; \"no_api_key\" running in demo mode'),
+  "isStale": zod.boolean().optional().describe('True when picks are older than PICKS_STALENESS_MINUTES or no API key is configured'),
+  "lastRefreshedAt": zod.string().nullish().describe('ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed'),
+  "consecutiveFailures": zod.number().optional().describe('Number of back-to-back refresh failures; resets to 0 on success'),
+  "source": zod.enum(['live', 'snapshot', 'mock']).optional().describe('\"live\" fetched this session; \"snapshot\" restored from disk; \"mock\" no API key')
 })
 
 
@@ -295,7 +295,19 @@ export const GetTopPicksResponse = zod.array(GetTopPicksResponseItem)
  */
 export const GetGhostwatchStatusResponse = zod.object({
   "usingRealData": zod.boolean().describe('True when picks were generated from a live API, false when serving mock data'),
-  "lastRefreshedAt": zod.string().nullish().describe('ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed')
+  "source": zod.enum(['live', 'snapshot', 'mock']).optional().describe('\"live\" fetched this session; \"snapshot\" restored from disk on startup; \"mock\" no API key'),
+  "lastRefreshedAt": zod.string().nullish().describe('ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed'),
+  "isStale": zod.boolean().optional().describe('True when picks are older than the staleness threshold or the API key is not set'),
+  "consecutiveFailures": zod.number().optional().describe('Number of consecutive refresh failures (resets to 0 on success)'),
+  "lastError": zod.string().nullish().describe('Error message from the most recent failed refresh attempt')
+})
+
+
+/**
+ * @summary Trigger an immediate cache refresh from The Odds API
+ */
+export const TriggerRefreshResponse = zod.object({
+  "status": zod.string()
 })
 
 
@@ -365,15 +377,12 @@ export const ListSignalsResponse = zod.array(ListSignalsResponseItem)
  * @summary Auto-built prop combo tickets from Ghostwatch/Ghost Express picks
  */
 export const ListTicketsQueryParams = zod.object({
-  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional()
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional()
 })
 
 export const ListTicketsResponseItem = zod.object({
   "id": zod.string(),
-  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
-  "entryType": zod.enum(['PowerPlay', 'FlexPlay']),
-  "payoutMultiplier": zod.number(),
-  "winProbability": zod.number(),
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']),
   "picks": zod.array(zod.object({
   "id": zod.string(),
   "playerName": zod.string(),
@@ -408,9 +417,7 @@ export const SendTicketEmailBody = zod.object({
 
 export const SendTicketEmailResponse = zod.object({
   "success": zod.boolean(),
-  "message": zod.string(),
-  "dispatched": zod.number().optional(),
-  "skipped": zod.number().optional()
+  "message": zod.string()
 })
 
 
@@ -469,14 +476,58 @@ export const ListTeamPulseResponse = zod.array(ListTeamPulseResponseItem)
 
 
 /**
+ * @summary Subscribe a guest email to Ghostwatch updates
+ */
+export const PortalSubscribeBody = zod.object({
+  "email": zod.string(),
+  "name": zod.string().nullish()
+})
+
+export const PortalSubscribeResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Public preview of top picks (limited, no auth required)
+ */
+export const GetPortalPicksPreviewResponse = zod.object({
+  "picks": zod.array(zod.object({
+  "id": zod.string(),
+  "playerName": zod.string(),
+  "sport": zod.string(),
+  "propType": zod.string(),
+  "line": zod.number(),
+  "direction": zod.enum(['Over', 'Under']),
+  "confidence": zod.number(),
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "isLocked": zod.boolean().optional()
+})),
+  "totalAvailable": zod.number(),
+  "lockedCount": zod.number()
+})
+
+
+/**
+ * @summary Public social-proof stats (total picks today, sports covered, subscribers)
+ */
+export const GetPortalStatsResponse = zod.object({
+  "picksToday": zod.number(),
+  "sportsLive": zod.number(),
+  "subscribers": zod.number(),
+  "avgConfidence": zod.number()
+})
+
+
+/**
  * @summary Get current user settings
  */
 export const GetSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
-  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional().default('PowerPlay'),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()
@@ -489,8 +540,7 @@ export const GetSettingsResponse = zod.object({
 export const UpdateSettingsBody = zod.object({
   "email": zod.string().optional(),
   "preferredSports": zod.array(zod.string()).optional(),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional(),
-  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional(),
   "picksPerTicket": zod.number().optional(),
   "emailNotifications": zod.boolean().optional()
 })
@@ -499,8 +549,7 @@ export const UpdateSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
-  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional().default('PowerPlay'),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()

@@ -5,21 +5,24 @@
  * Ghostwatch API — AI-powered sports betting assistant
  * OpenAPI spec version: 0.1.0
  */
+import type { HealthStatusDataFreshness } from './healthStatusDataFreshness';
+import type { HealthStatusSource } from './healthStatusSource';
+import type { HealthStatusStatus } from './healthStatusStatus';
 
 export interface HealthStatus {
   /** "ok" when live data is fresh; "degraded" when stale or no API key */
-  status: 'ok' | 'degraded';
+  status: HealthStatusStatus;
   /** "ok" fresh live data; "stale" real data overdue for refresh; "no_api_key" running in demo mode */
-  dataFreshness?: 'ok' | 'stale' | 'no_api_key';
+  dataFreshness?: HealthStatusDataFreshness;
   /** True when picks are older than PICKS_STALENESS_MINUTES or no API key is configured */
   isStale?: boolean;
   /**
-   * ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed
-   * @nullable
-   */
+     * ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed
+     * @nullable
+     */
   lastRefreshedAt?: string | null;
   /** Number of back-to-back refresh failures; resets to 0 on success */
   consecutiveFailures?: number;
   /** "live" fetched this session; "snapshot" restored from disk; "mock" no API key */
-  source?: 'live' | 'snapshot' | 'mock';
+  source?: HealthStatusSource;
 }
