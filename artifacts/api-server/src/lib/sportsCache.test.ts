@@ -20,6 +20,8 @@ vi.mock("./oddsApi.js", () => ({
   fetchEvents: vi.fn(),
   fetchScores: vi.fn(),
   fetchPlayerProps: vi.fn(),
+  // Returns null quota so getAdaptiveSettings() uses safe defaults in all tests
+  getQuotaStats: vi.fn(() => ({ remainingRequests: null, remainingCredits: null })),
   SPORT_KEYS: { basketball_nba: "basketball_nba" },
 }));
 
