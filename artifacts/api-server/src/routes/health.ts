@@ -29,11 +29,11 @@ router.get("/healthz", (_req, res) => {
     source: cache.source,
   });
 
-  // Return 503 when degraded so external HTTP monitors (Datadog, Uptime Robot,
-  // Kubernetes readiness probes, etc.) automatically alert on stale data without
-  // needing to parse the response body.
-  const httpStatus = status === "ok" ? 200 : 503;
-  res.status(httpStatus).json(data);
+  // Always return 200 — the server is up and serving requests.
+  // The body's `status` field ("ok" vs "degraded") lets external monitors
+  // (Datadog, Uptime Robot, etc.) inspect data freshness without the HTTP
+  // status causing the Autoscale startup probe to fail on every cold start.
+  res.status(200).json(data);
 });
 
 export default router;
