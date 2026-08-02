@@ -967,7 +967,7 @@ components:
         preferredSports:
           type: array
           items: { type: string }
-        riskProfile: { type: string, enum: [Safe, Balanced, Aggressive] }
+        riskProfile: { type: string, enum: [Safe, Balanced, Aggressive, Mixed] }
         entryType: { type: string, enum: [PowerPlay, FlexPlay] }
         picksPerTicket: { type: number }
         emailNotifications: { type: boolean }

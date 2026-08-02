@@ -561,7 +561,7 @@ export const GetSettingsResponse = zod.object({
 export const UpdateSettingsBody = zod.object({
   "email": zod.string().optional(),
   "preferredSports": zod.array(zod.string()).optional(),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional(),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional(),
   "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
   "picksPerTicket": zod.number().optional(),
   "emailNotifications": zod.boolean().optional()
