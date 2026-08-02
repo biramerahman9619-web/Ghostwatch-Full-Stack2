@@ -505,7 +505,8 @@ export const GetPortalPicksPreviewResponse = zod.object({
   "isLocked": zod.boolean().optional()
 })),
   "totalAvailable": zod.number(),
-  "lockedCount": zod.number()
+  "lockedCount": zod.number(),
+  "source": zod.enum(['live', 'snapshot']).describe('Whether picks came from the live in-memory cache or the on-disk snapshot fallback')
 })
 
 
@@ -561,6 +562,7 @@ export const UpdateSettingsBody = zod.object({
   "email": zod.string().optional(),
   "preferredSports": zod.array(zod.string()).optional(),
   "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional(),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
   "picksPerTicket": zod.number().optional(),
   "emailNotifications": zod.boolean().optional()
 })

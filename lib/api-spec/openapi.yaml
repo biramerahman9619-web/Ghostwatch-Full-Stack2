@@ -968,6 +968,7 @@ components:
           type: array
           items: { type: string }
         riskProfile: { type: string, enum: [Safe, Balanced, Aggressive] }
+        entryType: { type: string, enum: [PowerPlay, FlexPlay] }
         picksPerTicket: { type: number }
         emailNotifications: { type: boolean }
 
@@ -1002,7 +1003,7 @@ components:
 
     PortalPicksPreview:
       type: object
-      required: [picks, totalAvailable, lockedCount]
+      required: [picks, totalAvailable, lockedCount, source]
       properties:
         picks:
           type: array
@@ -1010,6 +1011,10 @@ components:
             $ref: "#/components/schemas/PortalPickPreview"
         totalAvailable: { type: number }
         lockedCount: { type: number }
+        source:
+          type: string
+          enum: [live, snapshot]
+          description: Whether picks came from the live in-memory cache or the on-disk snapshot fallback
 
     PortalStats:
       type: object
