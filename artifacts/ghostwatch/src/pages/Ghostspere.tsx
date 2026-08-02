@@ -3,18 +3,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Bot, Mail, Settings2, Shuffle, SplitSquareHorizontal } from "lucide-react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetSettingsQueryKey } from "@workspace/api-client-react";
 
+/** Map a riskTier name to Tailwind classes for the small dot indicator. */
+function pickDotClass(riskTier: string): string {
+  if (riskTier === 'Safe') return 'bg-safe';
+  if (riskTier === 'Balanced') return 'bg-balanced';
+  if (riskTier === 'Aggressive') return 'bg-aggressive';
+  return 'bg-muted-foreground';
+}
+
+/** Compact "2S · 3B · 1A" summary for Mixed ticket headers. */
+function MixedTierSummary({ picks }: { picks: any[] }) {
+  const safe = picks.filter((p) => p.riskTier === 'Safe').length;
+  const balanced = picks.filter((p) => p.riskTier === 'Balanced').length;
+  const aggressive = picks.filter((p) => p.riskTier === 'Aggressive').length;
+
+  const parts = [] as React.ReactElement[];
+  if (safe > 0)       parts.push(<span key="s" className="text-safe">{safe}S</span>);
+  if (balanced > 0)   parts.push(<span key="b" className="text-balanced">{balanced}B</span>);
+  if (aggressive > 0) parts.push(<span key="a" className="text-aggressive">{aggressive}A</span>);
+
+  return (
+    <span className="text-[10px] font-mono flex items-center gap-1">
+      {parts.reduce<React.ReactElement[]>((acc, el, i) => {
+        if (i > 0) acc.push(<span key={`sep-${i}`} className="text-muted-foreground/50">·</span>);
+        acc.push(el);
+        return acc;
+      }, [])}
+    </span>
+  );
+}
+
 function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: () => void, isSelected: boolean }) {
+  const isMixed = ticket.riskTier === 'Mixed';
+
   let tierColor = "border-primary/30 text-primary";
-  if (ticket.riskTier === 'Safe') tierColor = "border-safe/30 text-safe";
+  if (ticket.riskTier === 'Safe')       tierColor = "border-safe/30 text-safe";
   if (ticket.riskTier === 'Aggressive') tierColor = "border-aggressive/30 text-aggressive";
-  if (ticket.riskTier === 'Balanced') tierColor = "border-balanced/30 text-balanced";
-  if (ticket.riskTier === 'Mixed') tierColor = "border-purple-400/30 text-purple-400";
+  if (ticket.riskTier === 'Balanced')   tierColor = "border-balanced/30 text-balanced";
+  if (ticket.riskTier === 'Mixed')      tierColor = "border-purple-400/30 text-purple-400";
 
   return (
     <Card 
@@ -26,10 +58,11 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
     >
       <CardContent className="p-5">
         <div className="flex justify-between items-center mb-4 pb-4 border-b border-border/50">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className={cn("font-mono uppercase bg-background", tierColor)}>
               {ticket.riskTier} PARLAY
             </Badge>
+            {isMixed && <MixedTierSummary picks={ticket.picks} />}
             <span className="text-xs text-muted-foreground font-mono">{ticket.sport}</span>
           </div>
           <div className="text-right">
@@ -41,11 +74,17 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
         <div className="space-y-3">
           {ticket.picks.map((pick: any, i: number) => (
             <div key={i} className="flex justify-between items-center text-sm">
-              <div>
-                <span className="font-bold">{pick.playerName}</span>
-                <span className="text-muted-foreground ml-2">{pick.propType}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                {isMixed && (
+                  <span
+                    className={cn("w-2 h-2 rounded-full flex-shrink-0", pickDotClass(pick.riskTier))}
+                    title={pick.riskTier}
+                  />
+                )}
+                <span className="font-bold truncate">{pick.playerName}</span>
+                <span className="text-muted-foreground shrink-0">{pick.propType}</span>
               </div>
-              <div className="font-mono font-medium text-primary">
+              <div className="font-mono font-medium text-primary shrink-0 ml-2">
                 {pick.direction === 'Over' ? 'O' : 'U'} {pick.line}
               </div>
             </div>
