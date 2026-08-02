@@ -32,7 +32,7 @@ function rowToSettings(row: {
     id: String(row.id),
     email: row.email,
     preferredSports: row.preferredSports.split(",").filter(Boolean),
-    riskProfile: row.riskProfile as "Safe" | "Balanced" | "Aggressive",
+    riskProfile: row.riskProfile as "Safe" | "Balanced" | "Aggressive" | "Mixed",
     picksPerTicket: Number(row.picksPerTicket),
     emailNotifications: row.emailNotifications,
     createdAt: row.createdAt.toISOString(),

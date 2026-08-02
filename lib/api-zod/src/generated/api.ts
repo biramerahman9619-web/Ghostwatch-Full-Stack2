@@ -365,12 +365,12 @@ export const ListSignalsResponse = zod.array(ListSignalsResponseItem)
  * @summary Auto-built prop combo tickets from Ghostwatch/Ghost Express picks
  */
 export const ListTicketsQueryParams = zod.object({
-  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional()
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional()
 })
 
 export const ListTicketsResponseItem = zod.object({
   "id": zod.string(),
-  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
   "picks": zod.array(zod.object({
   "id": zod.string(),
   "playerName": zod.string(),
@@ -470,7 +470,7 @@ export const GetSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()
@@ -483,7 +483,7 @@ export const GetSettingsResponse = zod.object({
 export const UpdateSettingsBody = zod.object({
   "email": zod.string().optional(),
   "preferredSports": zod.array(zod.string()).optional(),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']).optional(),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional(),
   "picksPerTicket": zod.number().optional(),
   "emailNotifications": zod.boolean().optional()
 })
@@ -492,7 +492,7 @@ export const UpdateSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()

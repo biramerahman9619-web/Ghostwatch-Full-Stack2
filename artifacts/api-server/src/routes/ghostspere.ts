@@ -89,27 +89,33 @@ router.get("/ghostspere/tickets", async (req, res): Promise<void> => {
     return;
   }
 
-  // Read the authenticated user's picksPerTicket setting; fall back to 3.
+  // Read the user's picksPerTicket + riskProfile settings (auth-aware, mirrors settings route).
   let picksPerTicket = 3;
-  if (req.isAuthenticated()) {
-    const rows = await db
-      .select({ picksPerTicket: userSettingsTable.picksPerTicket })
-      .from(userSettingsTable)
-      .where(eq(userSettingsTable.userId, req.user.id))
-      .limit(1);
-    if (rows[0]?.picksPerTicket) {
-      picksPerTicket = Math.min(6, Math.max(3, Number(rows[0].picksPerTicket)));
+  let riskProfile: "Safe" | "Balanced" | "Aggressive" | "Mixed" = "Balanced";
+  const userId = req.isAuthenticated() ? req.user.id : null;
+  const settingsFilter = userId
+    ? eq(userSettingsTable.userId, userId)
+    : isNull(userSettingsTable.userId);
+  const settingsRows = await db
+    .select({
+      picksPerTicket: userSettingsTable.picksPerTicket,
+      riskProfile: userSettingsTable.riskProfile,
+    })
+    .from(userSettingsTable)
+    .where(settingsFilter)
+    .limit(1);
+  if (settingsRows[0]) {
+    if (settingsRows[0].picksPerTicket) {
+      picksPerTicket = Math.min(6, Math.max(3, Number(settingsRows[0].picksPerTicket)));
+    }
+    if (settingsRows[0].riskProfile) {
+      riskProfile = settingsRows[0].riskProfile as typeof riskProfile;
     }
   }
 
-  // Generate tickets on-the-fly so the user's picks-per-ticket setting is
-  // reflected immediately without waiting for the next cache refresh.
+  // Generate tickets on-the-fly using the user's profile settings.
   const picks = getPicks();
-  let tickets = buildTicketsFromPicks(picks, picksPerTicket);
-
-  if (query.data.riskTier) {
-    tickets = tickets.filter((t) => t.riskTier === query.data.riskTier);
-  }
+  const tickets = buildTicketsFromPicks(picks, picksPerTicket, riskProfile);
 
   res.json(ListTicketsResponse.parse(tickets));
 });
@@ -154,31 +160,27 @@ router.post("/ghostspere/send-email", async (req, res): Promise<void> => {
 
   req.log.info({ userId, ticketIds, sport }, "Email dispatch requested");
 
-  // Resolve the requested tickets from the cache
-  const allTickets = getTickets() as Array<{
-    id: string;
-    riskTier: string;
-    picks: Array<{
-      id: string;
-      playerName: string;
-      team: string;
-      opponent: string;
-      sport: string;
-      propType: string;
-      line: number;
-      direction?: string;
-      projection: number;
-      confidence: number;
-      riskTier: string;
-      explanation: string;
-      socialImpact: number | null;
-      createdAt: string;
-    }>;
-    combinedConfidence: number;
-    sport: string;
-    createdAt: string;
-  }>;
+  // Rebuild tickets using the user's current settings — IDs are deterministic
+  // (hash of pick IDs) so they match what the /tickets endpoint returned.
+  const userRows = await db
+    .select({
+      picksPerTicket: userSettingsTable.picksPerTicket,
+      riskProfile: userSettingsTable.riskProfile,
+    })
+    .from(userSettingsTable)
+    .where(eq(userSettingsTable.userId, userId))
+    .limit(1);
 
+  const emailPicksPerTicket = userRows[0]?.picksPerTicket
+    ? Math.min(6, Math.max(3, Number(userRows[0].picksPerTicket)))
+    : 3;
+  const emailRiskProfile = (userRows[0]?.riskProfile ?? "Balanced") as
+    | "Safe"
+    | "Balanced"
+    | "Aggressive"
+    | "Mixed";
+
+  const allTickets = buildTicketsFromPicks(getPicks(), emailPicksPerTicket, emailRiskProfile);
   const selectedTickets = allTickets.filter((t) => ticketIds.includes(t.id));
 
   if (selectedTickets.length === 0) {
