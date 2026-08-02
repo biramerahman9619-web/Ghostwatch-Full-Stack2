@@ -42,4 +42,4 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
-MONTHLY_CREDIT_BUDGET = "5000"
+MONTHLY_CREDIT_BUDGET = "6000"
