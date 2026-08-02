@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Bot, Mail, Settings2, SplitSquareHorizontal, Shield, ShieldCheck, ShieldOff,
-  Zap, Clock, Send, Activity, MessageSquare, TrendingUp,
+  Zap, Clock, Send, Activity, MessageSquare, TrendingUp, RefreshCw,
 } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -62,9 +62,10 @@ function AiBadge({ aiConfidence, reasoning, agentWouldSelect }: { aiConfidence: 
 }
 
 // ─── Ticket card ──────────────────────────────────────────────────────────────
-function TicketCard({ ticket, onSelect, isSelected, evaluation }: {
+function TicketCard({ ticket, onSelect, isSelected, evaluation, evalFailed }: {
   ticket: any; onSelect: () => void; isSelected: boolean;
   evaluation?: { aiConfidence: number; reasoning: string; agentWouldSelect: boolean };
+  evalFailed?: boolean;
 }) {
   const isPP = (ticket.entryType ?? "PowerPlay") === "PowerPlay";
   const pickCount = ticket.picks?.length ?? 0;
@@ -122,9 +123,13 @@ function TicketCard({ ticket, onSelect, isSelected, evaluation }: {
         </div>
         {evaluation
           ? <AiBadge {...evaluation} />
-          : <div className="mt-2 pt-2 border-t border-border/30">
-              <div className="h-3 bg-secondary/30 rounded animate-pulse w-3/4" />
-            </div>
+          : evalFailed
+            ? <div className="mt-2 pt-2 border-t border-border/30">
+                <span className="text-[9px] font-mono text-muted-foreground/50">AI eval unavailable</span>
+              </div>
+            : <div className="mt-2 pt-2 border-t border-border/30">
+                <div className="h-3 bg-secondary/30 rounded animate-pulse w-3/4" />
+              </div>
         }
       </CardContent>
     </Card>
@@ -201,6 +206,7 @@ export default function Ghostspere() {
   // ── Ticket state ──
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
   const [evaluations, setEvaluations] = useState<Map<string, { aiConfidence: number; reasoning: string; agentWouldSelect: boolean }>>(new Map());
+  const [evalFailed, setEvalFailed] = useState(false);
 
   // ── Chat state ──
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "agent"; content: string }[]>([]);
@@ -213,8 +219,7 @@ export default function Ghostspere() {
     if (settings) {
       setEditEmail(settings.email || "");
       setEditRisk((settings.riskProfile as any) || "Balanced");
-      // entryType is returned by the server but not yet in the response schema
-      setEditEntryType(((settings as any).entryType as any) || "PowerPlay");
+      setEditEntryType((settings.entryType as any) || "PowerPlay");
       setEditPicks(settings.picksPerTicket || 3);
     }
   }, [settings]);
@@ -230,8 +235,9 @@ export default function Ghostspere() {
   }, [agentConfig]);
 
   // ── Run AI evaluation when tickets load ──
-  useEffect(() => {
+  const runEvaluation = useCallback(() => {
     if (!tickets || tickets.length === 0) return;
+    setEvalFailed(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     evaluateMutation.mutate(undefined as any, {
       onSuccess: (data: any) => {
@@ -240,9 +246,18 @@ export default function Ghostspere() {
           map.set(ev.ticketId, ev);
         }
         setEvaluations(map);
+        setEvalFailed(false);
+      },
+      onError: () => {
+        setEvalFailed(true);
       },
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets?.length]);
+
+  useEffect(() => {
+    runEvaluation();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickets?.length]);
 
   // ── Scroll chat to bottom ──
@@ -612,11 +627,34 @@ export default function Ghostspere() {
                 <span className="text-[9px] text-primary animate-pulse">· AI evaluating...</span>
               )}
             </h2>
-            {evaluations.size > 0 && (
-              <span className="text-[9px] font-mono text-muted-foreground">
-                {Array.from(evaluations.values()).filter(e => e.agentWouldSelect).length} agent picks
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {evaluations.size > 0 && (
+                <span className="text-[9px] font-mono text-muted-foreground">
+                  {Array.from(evaluations.values()).filter(e => e.agentWouldSelect).length} agent picks
+                </span>
+              )}
+              {evalFailed && (
+                <button
+                  onClick={runEvaluation}
+                  disabled={evaluateMutation.isPending}
+                  className="flex items-center gap-1 text-[9px] font-mono text-yellow-400/70 hover:text-yellow-400 border border-yellow-400/20 rounded px-1.5 py-0.5 transition-colors"
+                  title="Re-run AI evaluation"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" />Retry eval
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
+                  setEvaluations(new Map());
+                  setEvalFailed(false);
+                }}
+                className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/60 hover:text-muted-foreground border border-border/40 rounded px-1.5 py-0.5 transition-colors"
+                title="Reload picks"
+              >
+                <RefreshCw className="w-2.5 h-2.5" />Reload
+              </button>
+            </div>
           </div>
 
           {loadingTickets ? (
@@ -638,6 +676,7 @@ export default function Ghostspere() {
                   isSelected={selectedTickets.has(ticket.id)}
                   onSelect={() => handleToggleTicket(ticket.id)}
                   evaluation={evaluations.get(ticket.id)}
+                  evalFailed={evalFailed}
                 />
               ))}
             </div>
