@@ -968,13 +968,22 @@ export function scoreEventsToGames(scores: ScoreEvent[], sport: string): Generat
   return scores.map((e) => {
     const homeScore = e.scores?.find((s) => s.name === e.home_team)?.score;
     const awayScore = e.scores?.find((s) => s.name === e.away_team)?.score;
+    // A game in the scores endpoint that hasn't started yet (no score entries)
+    // should still be "Scheduled" — not "Live". Only mark "Live" when the API
+    // has actually returned score data, meaning play has begun.
+    const hasStarted = Boolean(e.scores && e.scores.length > 0);
+    const status: "Scheduled" | "Live" | "Final" = e.completed
+      ? "Final"
+      : hasStarted
+        ? "Live"
+        : "Scheduled";
     return {
       id: e.id,
       homeTeam: e.home_team,
       awayTeam: e.away_team,
       sport,
       scheduledAt: e.commence_time,
-      status: e.completed ? ("Final" as const) : ("Live" as const),
+      status,
       homeScore: homeScore ? Number(homeScore) : null,
       awayScore: awayScore ? Number(awayScore) : null,
       quarter: null,

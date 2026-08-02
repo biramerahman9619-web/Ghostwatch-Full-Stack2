@@ -407,8 +407,10 @@ async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
   // For each sport, grab props for the first few upcoming games (to stay within API quota)
   await Promise.all(
     sports.map(async (sport) => {
+      // Include both Scheduled and Live games — player-prop markets stay
+      // open once a game begins, so live games are still bettable.
       const sportGames = games
-        .filter((g) => g.sport === sport && g.status === "Scheduled")
+        .filter((g) => g.sport === sport && (g.status === "Scheduled" || g.status === "Live"))
         .slice(0, 3); // max 3 games per sport to manage API usage
 
       const propResults = await Promise.all(
@@ -418,18 +420,29 @@ async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
         }),
       );
 
-      // Any failed prop request (null = network/HTTP error) aborts the whole refresh.
-      // This is intentional: partial picks under "LIVE DATA" would be misleading.
       const failures = propResults.filter((r) => r.props === null);
-      if (failures.length) {
-        throw new Error(
-          `Odds API player-props request failed for games: ${failures.map((f) => f.gameId).join(", ")} (sport: ${sport})`,
-        );
-      }
-
       const eventsWithProps = propResults
         .map((r) => r.props)
         .filter((e): e is NonNullable<typeof e> => e !== null);
+
+      if (failures.length > 0 && eventsWithProps.length === 0) {
+        // All prop calls for this sport failed — off-season or API unavailable.
+        // Skip the sport with a warning rather than aborting the whole refresh,
+        // so MLB/WNBA picks still surface even when NHL/NBA are dormant.
+        logger.warn(
+          { sport, failedGames: failures.map((f) => f.gameId) },
+          "[SportsCache] No player-prop markets available for sport — skipping",
+        );
+        return; // skip this sport
+      }
+
+      if (failures.length > 0) {
+        // Partial failure — some games have props, some don't. Use what we have.
+        logger.warn(
+          { sport, failedGames: failures.map((f) => f.gameId) },
+          "[SportsCache] Some player-prop requests failed — using available games only",
+        );
+      }
 
       if (eventsWithProps.length) {
         const picks = await buildPicksFromEvents(eventsWithProps, sport);
