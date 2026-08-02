@@ -355,6 +355,23 @@ function loadSnapshot(): boolean {
 
 // ─── Refresh logic ────────────────────────────────────────────────────────────
 
+/**
+ * Delay between consecutive player-prop API requests during a refresh cycle.
+ * Prevents triggering The Odds API's per-minute frequency cap (EXCEEDED_FREQ_LIMIT)
+ * when many games across multiple sports are fetched on startup or manual refresh.
+ *
+ * Defaults to 300 ms. Set PROP_REQUEST_DELAY_MS to override.
+ * Forced to 0 ms in the test environment so unit tests run at full speed.
+ */
+function getPropRequestDelayMs(): number {
+  if (process.env["NODE_ENV"] === "test") return 0;
+  return Number(process.env["PROP_REQUEST_DELAY_MS"] ?? "300");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function refreshGamesAndScores(): Promise<{
   games: GeneratedGame[];
   liveGames: GeneratedLiveGame[];
@@ -403,52 +420,74 @@ async function refreshGamesAndScores(): Promise<{
 async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
   const sports = Object.keys(SPORT_KEYS);
   const allPicks: GeneratedPick[] = [];
+  const delayMs = getPropRequestDelayMs();
 
-  // For each sport, grab props for the first few upcoming games (to stay within API quota)
-  await Promise.all(
-    sports.map(async (sport) => {
-      // Include both Scheduled and Live games — player-prop markets stay
-      // open once a game begins, so live games are still bettable.
-      const sportGames = games
-        .filter((g) => g.sport === sport && (g.status === "Scheduled" || g.status === "Live"))
-        .slice(0, 3); // max 3 games per sport to manage API usage
+  // Counter tracks total prop requests fired so far. The first request is
+  // always immediate; each subsequent one waits `delayMs` before firing.
+  // This converts what was a burst of up to 15 simultaneous requests into a
+  // controlled sequential stream, avoiding EXCEEDED_FREQ_LIMIT 429s on
+  // server restart / first refresh.
+  let requestsFired = 0;
 
-      const propResults = await Promise.all(
-        sportGames.map(async (g) => {
-          const props = await fetchPlayerProps(sport, g.id);
-          return { gameId: g.id, props };
-        }),
+  logger.info(
+    { sports: sports.join(", "), delayMs },
+    "[SportsCache] Starting staggered player-prop fetch",
+  );
+
+  for (const sport of sports) {
+    // Include both Scheduled and Live games — player-prop markets stay
+    // open once a game begins, so live games are still bettable.
+    const sportGames = games
+      .filter((g) => g.sport === sport && (g.status === "Scheduled" || g.status === "Live"))
+      .slice(0, 3); // max 3 games per sport to manage API usage
+
+    if (!sportGames.length) continue;
+
+    const propResults: { gameId: string; props: Awaited<ReturnType<typeof fetchPlayerProps>> }[] = [];
+
+    for (const g of sportGames) {
+      // Stagger: sleep before every request except the very first one.
+      if (requestsFired > 0 && delayMs > 0) {
+        await sleep(delayMs);
+      }
+      const props = await fetchPlayerProps(sport, g.id);
+      propResults.push({ gameId: g.id, props });
+      requestsFired++;
+    }
+
+    const failures = propResults.filter((r) => r.props === null);
+    const eventsWithProps = propResults
+      .map((r) => r.props)
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+
+    if (failures.length > 0 && eventsWithProps.length === 0) {
+      // All prop calls for this sport failed — off-season or API unavailable.
+      // Skip the sport with a warning rather than aborting the whole refresh,
+      // so MLB/WNBA picks still surface even when NHL/NBA are dormant.
+      logger.warn(
+        { sport, failedGames: failures.map((f) => f.gameId) },
+        "[SportsCache] No player-prop markets available for sport — skipping",
       );
+      continue;
+    }
 
-      const failures = propResults.filter((r) => r.props === null);
-      const eventsWithProps = propResults
-        .map((r) => r.props)
-        .filter((e): e is NonNullable<typeof e> => e !== null);
+    if (failures.length > 0) {
+      // Partial failure — some games have props, some don't. Use what we have.
+      logger.warn(
+        { sport, failedGames: failures.map((f) => f.gameId) },
+        "[SportsCache] Some player-prop requests failed — using available games only",
+      );
+    }
 
-      if (failures.length > 0 && eventsWithProps.length === 0) {
-        // All prop calls for this sport failed — off-season or API unavailable.
-        // Skip the sport with a warning rather than aborting the whole refresh,
-        // so MLB/WNBA picks still surface even when NHL/NBA are dormant.
-        logger.warn(
-          { sport, failedGames: failures.map((f) => f.gameId) },
-          "[SportsCache] No player-prop markets available for sport — skipping",
-        );
-        return; // skip this sport
-      }
+    if (eventsWithProps.length) {
+      const picks = await buildPicksFromEvents(eventsWithProps, sport);
+      allPicks.push(...picks);
+    }
+  }
 
-      if (failures.length > 0) {
-        // Partial failure — some games have props, some don't. Use what we have.
-        logger.warn(
-          { sport, failedGames: failures.map((f) => f.gameId) },
-          "[SportsCache] Some player-prop requests failed — using available games only",
-        );
-      }
-
-      if (eventsWithProps.length) {
-        const picks = await buildPicksFromEvents(eventsWithProps, sport);
-        allPicks.push(...picks);
-      }
-    }),
+  logger.info(
+    { requestsFired, totalPicks: allPicks.length },
+    "[SportsCache] Staggered prop fetch complete",
   );
 
   return allPicks;
