@@ -85,7 +85,15 @@ export default function Ghostspere() {
   };
 
   const handleSend = () => {
-    if (!settings?.email || selectedTickets.size === 0) return;
+    if (selectedTickets.size === 0) return;
+    if (!settings?.email) {
+      toast({
+        title: "No delivery address",
+        description: "Set your email in the Construction Protocol panel first.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     sendEmail.mutate({
       data: {
@@ -96,10 +104,21 @@ export default function Ghostspere() {
       onSuccess: () => {
         toast({
           title: "Tickets dispatched",
-          description: `Sent ${selectedTickets.size} tickets to ${settings.email}`,
+          description: `Sent ${selectedTickets.size} ticket${selectedTickets.size !== 1 ? 's' : ''} to ${settings.email}`,
           className: "border-primary bg-card text-primary font-mono",
         });
         setSelectedTickets(new Set());
+      },
+      onError: (err: any) => {
+        const msg: string = err?.response?.data?.error ?? err?.message ?? "Unknown error";
+        const isSmtp = msg.includes("SMTP") || msg.includes("not configured");
+        toast({
+          title: isSmtp ? "Email not configured" : "Dispatch failed",
+          description: isSmtp
+            ? "Add SMTP_HOST, SMTP_USER, and SMTP_PASS as Replit secrets to enable email delivery."
+            : msg,
+          variant: "destructive",
+        });
       }
     });
   };
@@ -222,14 +241,30 @@ export default function Ghostspere() {
               <div>
                 <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Picks per Ticket ({editPicks})</label>
                 <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-muted-foreground">3</span>
                   <input 
                     type="range" 
-                    min="1" 
-                    max="10" 
+                    min="3" 
+                    max="6" 
                     value={editPicks}
                     onChange={(e) => setEditPicks(Number(e.target.value))}
                     className="flex-1 accent-primary"
                   />
+                  <span className="text-xs font-mono text-muted-foreground">6</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  {[3,4,5,6].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setEditPicks(n)}
+                      className={cn(
+                        "text-[10px] font-mono px-2 py-0.5 rounded transition-colors",
+                        editPicks === n ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {n}
+                    </button>
+                  ))}
                 </div>
               </div>
 

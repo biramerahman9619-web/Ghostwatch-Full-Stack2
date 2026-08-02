@@ -269,8 +269,8 @@ export default function Dashboard() {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-1 bg-secondary rounded-md p-1 border border-border">
-                {['ALL', 'NBA', 'NFL', 'NHL'].map(sport => (
+              <div className="flex items-center gap-1 bg-secondary rounded-md p-1 border border-border flex-wrap">
+                {['ALL', ...Array.from(new Set((picks ?? []).map(p => p.sport))).sort()].map(sport => (
                   <button
                     key={sport}
                     onClick={() => setFilterSport(sport)}

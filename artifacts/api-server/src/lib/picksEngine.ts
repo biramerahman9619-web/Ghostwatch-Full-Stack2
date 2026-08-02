@@ -780,7 +780,9 @@ export async function buildPicksFromEvents(
   }));
 }
 
-export function buildTicketsFromPicks(picks: GeneratedPick[]) {
+export function buildTicketsFromPicks(picks: GeneratedPick[], picksPerTicket: number = 3) {
+  // Clamp to valid range (3–6)
+  const size = Math.min(6, Math.max(3, Math.round(picksPerTicket)));
   const tiers: Array<"Safe" | "Balanced" | "Aggressive"> = ["Safe", "Balanced", "Aggressive"];
   const tickets = [];
 
@@ -788,9 +790,9 @@ export function buildTicketsFromPicks(picks: GeneratedPick[]) {
     const tierPicks = picks.filter((p) => p.riskTier === tier);
     if (!tierPicks.length) continue;
 
-    // Group into tickets of 3 picks each
-    for (let i = 0; i < tierPicks.length; i += 3) {
-      const chunk = tierPicks.slice(i, i + 3);
+    // Group into tickets of `size` picks each
+    for (let i = 0; i < tierPicks.length; i += size) {
+      const chunk = tierPicks.slice(i, i + size);
       if (!chunk.length) continue;
 
       const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
@@ -1017,7 +1019,7 @@ Market data:
   Confidence score: ${ctx.confidence}/100`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+      model: "gpt-4o-mini",
       max_completion_tokens: 120,
       messages: [{ role: "user", content: prompt }],
     });
