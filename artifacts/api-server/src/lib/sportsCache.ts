@@ -206,6 +206,7 @@ const SnapshotTicketSchema = z.object({
   riskTier: z.string(),
   entryType: z.enum(["PowerPlay", "FlexPlay"]).default("PowerPlay"),
   payoutMultiplier: z.number().default(5),
+  winProbability: z.number().default(0),
   picks: z.array(SnapshotPickSchema),
   combinedConfidence: z.number(),
   sport: z.string(),

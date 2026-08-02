@@ -169,6 +169,42 @@ export function flexBreakdownLabel(picks: number): string {
   return parts.join(" · ");
 }
 
+// ─── Win probability ──────────────────────────────────────────────────────────
+
+/**
+ * Projected win probability for a PrizePicks entry.
+ *
+ * Power Play: all picks must hit → product of individual probabilities.
+ * Flex Play (3+ picks): 1 miss still pays → P(all hit) + P(exactly 1 miss).
+ * Flex Play (2 picks): same as Power Play (both must hit for any credit).
+ *
+ * Returns a value 0–1; multiply by 100 for a percentage.
+ */
+export function calcWinProbability(
+  picks: { confidence: number }[],
+  entryType: "PowerPlay" | "FlexPlay",
+): number {
+  const probs = picks.map((p) => Math.min(0.95, Math.max(0.5, p.confidence / 100)));
+  const n = probs.length;
+  if (n === 0) return 0;
+
+  // P(all hit) = Π p_i
+  const allHit = probs.reduce((acc, p) => acc * p, 1);
+
+  // Power Play or 2-pick Flex Play: must sweep
+  if (entryType === "PowerPlay" || n <= 2) return allHit;
+
+  // Flex Play 3+: 1 miss allowed → add P(exactly 1 miss)
+  let oneOffProb = 0;
+  for (let i = 0; i < n; i++) {
+    const missI = 1 - probs[i]!;
+    const restHit = probs.reduce((acc, p, j) => (j === i ? acc : acc * p), 1);
+    oneOffProb += missI * restHit;
+  }
+
+  return Math.min(1, allHit + oneOffProb);
+}
+
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
 /** Convert American odds to implied probability (0–1). */
@@ -836,6 +872,7 @@ export function buildTicketsFromPicks(
     riskTier: string;
     entryType: "PowerPlay" | "FlexPlay";
     payoutMultiplier: number;
+    winProbability: number;
     picks: GeneratedPick[];
     combinedConfidence: number;
     sport: string;
@@ -879,6 +916,7 @@ export function buildTicketsFromPicks(
         riskTier: "Mixed",
         entryType,
         payoutMultiplier: prizePicksMultiplier(chunk.length, entryType),
+        winProbability: Math.round(calcWinProbability(chunk, entryType) * 1000) / 10,
         picks: chunk,
         combinedConfidence: Math.round(avgConf * 10) / 10,
         sport: sports.length === 1 ? sports[0]! : "Mixed",
@@ -904,6 +942,7 @@ export function buildTicketsFromPicks(
         riskTier: mode,
         entryType,
         payoutMultiplier: prizePicksMultiplier(chunk.length, entryType),
+        winProbability: Math.round(calcWinProbability(chunk, entryType) * 1000) / 10,
         picks: chunk,
         combinedConfidence: Math.round(avgConf * 10) / 10,
         sport: sports.length === 1 ? sports[0]! : "Mixed",
