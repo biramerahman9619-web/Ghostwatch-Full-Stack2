@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { db, guestSubscribersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 import { getPicks } from "../lib/sportsCache.js";
 import { logger } from "../lib/logger.js";
+import { isSmtpConfigured, getTransport } from "../lib/emailTransport.js";
+import { buildWelcomeEmailHtml, buildWelcomeEmailText } from "../lib/emailTemplate.js";
 import {
   PortalSubscribeBody,
   GetPortalPicksPreviewResponse,
@@ -22,12 +23,14 @@ router.post("/portal/subscribe", async (req: Request, res: Response) => {
 
   const { email, name } = parsed.data;
 
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
     await db
       .insert(guestSubscribersTable)
-      .values({ email: email.trim().toLowerCase(), name: name ?? null, source: "portal" });
+      .values({ email: normalizedEmail, name: name ?? null, source: "portal" });
 
-    logger.info({ email }, "[Portal] New subscriber");
+    logger.info({ email: normalizedEmail }, "[Portal] New subscriber");
     res.json({ success: true, message: "You're in. Intelligence updates incoming." });
   } catch (err: any) {
     // Unique constraint violation — already subscribed
@@ -35,8 +38,36 @@ router.post("/portal/subscribe", async (req: Request, res: Response) => {
       res.status(409).json({ error: "Already subscribed" });
       return;
     }
-    logger.error({ err, email }, "[Portal] Subscribe failed");
+    logger.error({ err, email: normalizedEmail }, "[Portal] Subscribe failed");
     res.status(500).json({ error: "Subscription failed" });
+    return;
+  }
+
+  // Send welcome email — fire-and-forget, never blocks or fails the subscription
+  if (isSmtpConfigured()) {
+    const portalUrl =
+      process.env["PORTAL_URL"] ??
+      `https://${process.env["REPLIT_DEV_DOMAIN"]}/ghostwatch-portal/`;
+
+    const fromAddress =
+      process.env["SMTP_FROM"] ??
+      process.env["SMTP_USER"] ??
+      "noreply@ghostwatch.app";
+
+    try {
+      await getTransport().sendMail({
+        from: `Ghostwatch <${fromAddress}>`,
+        to: normalizedEmail,
+        subject: "Access Granted — Ghostwatch Intelligence Feed",
+        html: buildWelcomeEmailHtml(name ?? null, portalUrl),
+        text: buildWelcomeEmailText(name ?? null, portalUrl),
+      });
+      logger.info({ email: normalizedEmail }, "[Portal] Welcome email sent");
+    } catch (mailErr) {
+      logger.warn({ mailErr, email: normalizedEmail }, "[Portal] Welcome email failed — subscriber saved");
+    }
+  } else {
+    logger.debug({ email: normalizedEmail }, "[Portal] SMTP not configured — skipping welcome email");
   }
 });
 

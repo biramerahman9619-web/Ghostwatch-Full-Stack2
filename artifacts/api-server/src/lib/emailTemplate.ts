@@ -197,6 +197,156 @@ export function buildEmailHtml(tickets: Ticket[], recipientEmail: string): strin
   `.trim();
 }
 
+// ─── Welcome email ────────────────────────────────────────────────────────────
+
+/** Escape a string for safe embedding in an HTML context. */
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+export function buildWelcomeEmailHtml(name: string | null, portalUrl: string): string {
+  const safeName = name ? escapeHtml(name.slice(0, 100)) : null;
+  const greeting = safeName ? `Welcome, ${safeName}.` : "Welcome.";
+  const dateLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ghostwatch — Access Granted</title>
+</head>
+<body style="margin:0;padding:0;background:#080810;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#080810;min-height:100vh">
+    <tr>
+      <td align="center" style="padding:40px 20px">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding-bottom:32px;text-align:center">
+              <div style="font-family:monospace;font-size:24px;font-weight:700;color:#00ffff;letter-spacing:2px">GHOSTWATCH</div>
+              <div style="font-family:monospace;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin-top:4px">Intelligence Portal</div>
+              <div style="font-family:monospace;font-size:12px;color:#475569;margin-top:16px">${dateLabel}</div>
+            </td>
+          </tr>
+
+          <!-- Access granted banner -->
+          <tr>
+            <td style="padding-bottom:28px">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;border:1px solid #1e1e2e;border-left:3px solid #00ffff;border-radius:6px">
+                <tr>
+                  <td style="padding:24px 28px">
+                    <div style="font-family:monospace;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px">// ACCESS GRANTED</div>
+                    <div style="font-family:monospace;font-size:22px;font-weight:700;color:#e2e8f0;line-height:1.3">${greeting}</div>
+                    <div style="font-size:15px;color:#94a3b8;margin-top:12px;line-height:1.7">
+                      You're now connected to the Ghostwatch intelligence feed — real-time AI-driven sports analytics that surfaces edge before the lines adjust.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- What you get -->
+          <tr>
+            <td style="padding-bottom:28px">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f1a;border:1px solid #1e1e2e;border-radius:6px">
+                <tr>
+                  <td style="padding:20px 28px;border-bottom:1px solid #1e1e2e">
+                    <div style="font-family:monospace;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:2px">What's in the feed</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:20px 28px">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #1a1a2e">
+                          <span style="font-family:monospace;font-size:12px;color:#00ffff">01 /</span>
+                          <span style="font-size:14px;color:#cbd5e1;margin-left:10px">Live player-prop picks across NBA, NFL, MLB, NHL, and WNBA</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #1a1a2e">
+                          <span style="font-family:monospace;font-size:12px;color:#00ffff">02 /</span>
+                          <span style="font-size:14px;color:#cbd5e1;margin-left:10px">Confidence-scored signals with AI-generated reasoning</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;border-bottom:1px solid #1a1a2e">
+                          <span style="font-family:monospace;font-size:12px;color:#00ffff">03 /</span>
+                          <span style="font-size:14px;color:#cbd5e1;margin-left:10px">PrizePicks Power Play and Flex Play entry builder</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0">
+                          <span style="font-family:monospace;font-size:12px;color:#00ffff">04 /</span>
+                          <span style="font-size:14px;color:#cbd5e1;margin-left:10px">Ghost Express — in-game live edge detection</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td style="padding-bottom:32px;text-align:center">
+              <a href="${portalUrl}" style="display:inline-block;padding:14px 36px;background:#00ffff;color:#080810;font-family:monospace;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;text-decoration:none;border-radius:4px">ACCESS LIVE PICKS</a>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:24px;border-top:1px solid #1e1e2e;text-align:center">
+              <div style="font-family:monospace;font-size:10px;color:#334155">For entertainment purposes only. Not financial advice.</div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+export function buildWelcomeEmailText(name: string | null, portalUrl: string): string {
+  // Plain text — no HTML risk, but still cap length and strip control chars
+  const safeName = name ? name.slice(0, 100).replace(/[\r\n]/g, " ") : null;
+  const greeting = safeName ? `Welcome, ${safeName}.` : "Welcome.";
+  return [
+    "GHOSTWATCH — ACCESS GRANTED",
+    "=".repeat(40),
+    "",
+    greeting,
+    "",
+    "You're now connected to the Ghostwatch intelligence feed — real-time AI-driven",
+    "sports analytics that surfaces edge before the lines adjust.",
+    "",
+    "What's in the feed:",
+    "  01 / Live player-prop picks across NBA, NFL, MLB, NHL, and WNBA",
+    "  02 / Confidence-scored signals with AI-generated reasoning",
+    "  03 / PrizePicks Power Play and Flex Play entry builder",
+    "  04 / Ghost Express — in-game live edge detection",
+    "",
+    `Access live picks: ${portalUrl}`,
+    "",
+    "For entertainment purposes only. Not financial advice.",
+  ].join("\n");
+}
+
 export function buildEmailText(tickets: Ticket[]): string {
   const dateLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
