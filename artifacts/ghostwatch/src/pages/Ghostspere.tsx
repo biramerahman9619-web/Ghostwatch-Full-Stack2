@@ -25,7 +25,7 @@ import {
   Zap, Clock, Send, Activity, MessageSquare, TrendingUp, RefreshCw,
   CheckCircle, XCircle, MinusCircle, Radio, CalendarClock, Trophy,
 } from "lucide-react";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -81,10 +81,11 @@ function AiBadge({ aiConfidence, reasoning, agentWouldSelect }: { aiConfidence: 
 }
 
 // ─── Ticket card ──────────────────────────────────────────────────────────────
-function TicketCard({ ticket, onSelect, isSelected, evaluation, evalFailed }: {
+function TicketCard({ ticket, onSelect, isSelected, evaluation, evalFailed, resultByPickId }: {
   ticket: any; onSelect: () => void; isSelected: boolean;
   evaluation?: { aiConfidence: number; reasoning: string; agentWouldSelect: boolean };
   evalFailed?: boolean;
+  resultByPickId: Map<string, "hit" | "miss" | "push">;
 }) {
   const isPP = (ticket.entryType ?? "PowerPlay") === "PowerPlay";
   const pickCount = ticket.picks?.length ?? 0;
@@ -93,15 +94,73 @@ function TicketCard({ ticket, onSelect, isSelected, evaluation, evalFailed }: {
   const winPct: number = ticket.winProbability ?? 0;
   const entryColor = isPP ? "border-purple-400/40 text-purple-300" : "border-sky-400/40 text-sky-300";
 
+  // ── Per-pick result counts ──
+  const pickResultList = (ticket.picks ?? []).map((p: any) => resultByPickId.get(p.id) ?? null);
+  const wonCount  = pickResultList.filter((r: any) => r === "hit").length;
+  const lostCount = pickResultList.filter((r: any) => r === "miss").length;
+  const pushCount = pickResultList.filter((r: any) => r === "push").length;
+  const settledCount = wonCount + lostCount + pushCount;
+  const pendingCount = pickCount - settledCount;
+  const hasAnyResult = settledCount > 0;
+
+  // ── Ticket outcome ──
+  // Miss tolerance derived from the authoritative FP payout schedule (FP_BREAKDOWN):
+  //   PP / FP-2 : 0 misses  → full loss on first miss
+  //   FP-3 / FP-4 : 1 miss → reduced payout (1.25x / 1.5x)
+  //   FP-5 / FP-6 : 2 misses → reduced payout (2x / 0.5x)
+  // Pushes void that leg (not a miss, not a hit); they don't count toward the tolerance.
+  const fpMissTolerance: number = isPP ? 0
+    : pickCount >= 5 ? 2
+    : pickCount >= 3 ? 1
+    : 0;
+
+  const allSettled = pendingCount === 0 && pickCount > 0;
+  let ticketOutcome: "winner" | "loser" | null = null;
+  if (allSettled) {
+    ticketOutcome = lostCount <= fpMissTolerance ? "winner" : "loser";
+  } else if (lostCount > fpMissTolerance) {
+    // Miss budget already blown — can't recover regardless of remaining picks
+    ticketOutcome = "loser";
+  }
+
+  // For FlexPlay winners with misses: indicate reduced payout
+  const isReducedFpWin = ticketOutcome === "winner" && !isPP && lostCount > 0;
+
   return (
     <Card
       className={cn(
-        "cursor-pointer transition-all border-2",
+        "cursor-pointer transition-all border-2 overflow-hidden",
         isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50",
         evaluation?.agentWouldSelect && "ring-1 ring-primary/30",
+        ticketOutcome === "winner" && "border-emerald-500/60 ring-1 ring-emerald-500/20",
+        ticketOutcome === "loser"  && "border-red-500/50 ring-1 ring-red-500/10",
       )}
       onClick={onSelect}
     >
+      {/* ── Ticket outcome banner ── */}
+      {ticketOutcome && (
+        <div className={cn(
+          "flex items-center justify-center gap-2 py-1.5 text-[11px] font-mono font-black uppercase tracking-widest",
+          ticketOutcome === "winner"
+            ? "bg-emerald-500/20 text-emerald-300 border-b border-emerald-500/30"
+            : "bg-red-500/15 text-red-400 border-b border-red-500/30",
+        )}>
+          {ticketOutcome === "winner" ? (
+            <>
+              <Trophy className="w-3.5 h-3.5" />
+              Winner
+              {isReducedFpWin && (
+                <span className="text-[9px] font-mono font-normal normal-case text-emerald-400/60 ml-0.5">
+                  (reduced payout — {lostCount} miss)
+                </span>
+              )}
+            </>
+          ) : (
+            <><XCircle className="w-3.5 h-3.5" /> No Prize</>
+          )}
+        </div>
+      )}
+
       <CardContent className="p-4">
         <div className="flex justify-between items-center mb-3 pb-3 border-b border-border/50">
           <div className="flex flex-col gap-1">
@@ -126,20 +185,55 @@ function TicketCard({ ticket, onSelect, isSelected, evaluation, evalFailed }: {
             </div>
           </div>
         </div>
+
+        {/* ── Per-pick list with result dots ── */}
         <div className="space-y-2">
-          {ticket.picks.map((pick: any, i: number) => (
-            <div key={i} className="flex justify-between items-center text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="font-bold truncate">{pick.playerName}</span>
-                <span className="text-muted-foreground shrink-0">{pick.propType}</span>
+          {(ticket.picks ?? []).map((pick: any, i: number) => {
+            const res = resultByPickId.get(pick.id) ?? null;
+            return (
+              <div key={i} className="flex justify-between items-center text-xs">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {/* Result indicator dot */}
+                  {res === "hit"  && <CheckCircle  className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                  {res === "miss" && <XCircle      className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                  {res === "push" && <MinusCircle  className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />}
+                  {!res           && <div className="w-3.5 h-3.5 rounded-full border border-border/30 flex-shrink-0 bg-secondary/30" />}
+                  <span className={cn("font-bold truncate",
+                    res === "hit"  ? "text-emerald-300" :
+                    res === "miss" ? "text-red-300 line-through opacity-60" :
+                    ""
+                  )}>{pick.playerName}</span>
+                  <span className="text-muted-foreground shrink-0 text-[10px]">{pick.propType}</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                  <span className="text-[10px] font-mono text-muted-foreground">{pick.confidence}%</span>
+                  <span className={cn("font-mono font-medium text-[11px]",
+                    res === "hit"  ? "text-emerald-400" :
+                    res === "miss" ? "text-red-400" :
+                    "text-primary"
+                  )}>{pick.direction === "Over" ? "O" : "U"} {pick.line}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                <span className="text-[10px] font-mono text-muted-foreground">{pick.confidence}%</span>
-                <span className="font-mono font-medium text-primary">{pick.direction === "Over" ? "O" : "U"} {pick.line}</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {/* ── Result summary bar ── */}
+        {hasAnyResult && (
+          <div className="mt-2 pt-2 border-t border-border/30 flex items-center gap-2 flex-wrap">
+            {wonCount  > 0 && <span className="text-[9px] font-mono font-bold text-emerald-400">{wonCount} Won</span>}
+            {lostCount > 0 && <span className="text-[9px] font-mono font-bold text-red-400">{lostCount} Lost</span>}
+            {pushCount > 0 && <span className="text-[9px] font-mono font-bold text-amber-400">{pushCount} Push</span>}
+            {pendingCount > 0 && (
+              <>
+                {settledCount > 0 && <span className="text-muted-foreground/30">·</span>}
+                <span className="text-[9px] font-mono text-muted-foreground/50">{pendingCount} pending</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── AI eval section (unchanged) ── */}
         {evaluation
           ? <AiBadge {...evaluation} />
           : evalFailed
@@ -399,8 +493,17 @@ export default function Ghostspere() {
 
   // ── Pick results ──
   const { data: pickResults, isLoading: loadingResults, refetch: refetchResults } =
-    useListPickResults({ query: { queryKey: getListPickResultsQueryKey(), refetchInterval: centerView === "results" ? 30_000 : false } });
+    useListPickResults({ query: { queryKey: getListPickResultsQueryKey(), refetchInterval: 60_000 } });
   const settleResult = useSettlePickResult();
+
+  // Build a fast lookup: pickId → result (used by TicketCard in the entries grid)
+  const resultByPickId = useMemo<Map<string, "hit" | "miss" | "push">>(() => {
+    const map = new Map<string, "hit" | "miss" | "push">();
+    for (const p of (pickResults ?? [])) {
+      if (p.result) map.set(p.pickId, p.result as "hit" | "miss" | "push");
+    }
+    return map;
+  }, [pickResults]);
 
   const handleSettle = useCallback((pickId: string, result: "hit" | "miss" | "push" | null) => {
     if (result === null) {
@@ -986,6 +1089,7 @@ export default function Ghostspere() {
                   onSelect={() => handleToggleTicket(ticket.id)}
                   evaluation={evaluations.get(ticket.id)}
                   evalFailed={evalFailed}
+                  resultByPickId={resultByPickId}
                 />
               ))}
             </div>
