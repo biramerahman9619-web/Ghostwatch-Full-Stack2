@@ -474,10 +474,19 @@ export const UserSettingsInputRiskProfile = {
   Aggressive: 'Aggressive',
 } as const;
 
+export type UserSettingsInputEntryType = typeof UserSettingsInputEntryType[keyof typeof UserSettingsInputEntryType];
+
+
+export const UserSettingsInputEntryType = {
+  PowerPlay: 'PowerPlay',
+  FlexPlay: 'FlexPlay',
+} as const;
+
 export interface UserSettingsInput {
   email?: string;
   preferredSports?: string[];
   riskProfile?: UserSettingsInputRiskProfile;
+  entryType?: UserSettingsInputEntryType;
   picksPerTicket?: number;
   emailNotifications?: boolean;
 }
@@ -522,10 +531,23 @@ export interface PortalPickPreview {
   isLocked?: boolean;
 }
 
+/**
+ * Whether picks came from the live in-memory cache or the on-disk snapshot fallback
+ */
+export type PortalPicksPreviewSource = typeof PortalPicksPreviewSource[keyof typeof PortalPicksPreviewSource];
+
+
+export const PortalPicksPreviewSource = {
+  live: 'live',
+  snapshot: 'snapshot',
+} as const;
+
 export interface PortalPicksPreview {
   picks: PortalPickPreview[];
   totalAvailable: number;
   lockedCount: number;
+  /** Whether picks came from the live in-memory cache or the on-disk snapshot fallback */
+  source: PortalPicksPreviewSource;
 }
 
 export interface PortalStats {

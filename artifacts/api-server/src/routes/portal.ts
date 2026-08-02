@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db, guestSubscribersTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
-import { getPicks } from "../lib/sportsCache.js";
+import { getPicks, loadPicksFromSnapshot, getCacheStatus } from "../lib/sportsCache.js";
 import { logger } from "../lib/logger.js";
 import { isOperator } from "../lib/operatorAuth.js";
 import { isSmtpConfigured, getTransport } from "../lib/emailTransport.js";
@@ -128,7 +128,31 @@ router.get("/portal/subscribers", async (req: Request, res: Response) => {
 // ─── GET /portal/picks/preview ───────────────────────────────────────────────
 
 router.get("/portal/picks/preview", (_req: Request, res: Response) => {
-  const allPicks = getPicks();
+  let livePicks = getPicks();
+  const cacheSource = getCacheStatus().source;
+
+  // Determine which picks to serve and where they came from
+  let source: "live" | "snapshot";
+  let allPicks = livePicks;
+
+  if (livePicks.length > 0) {
+    // In-memory cache has data — use it and map "mock" to "live" for the portal
+    source = cacheSource === "snapshot" ? "snapshot" : "live";
+  } else {
+    // Cold-start or live refresh returned zero — fall back to on-disk snapshot
+    const snap = loadPicksFromSnapshot();
+    if (snap && snap.picks.length > 0) {
+      allPicks = snap.picks;
+      source = "snapshot";
+      logger.info(
+        { picksFromDisk: snap.picks.length, savedAt: snap.savedAt },
+        "[Portal] Serving snapshot picks during cold-start window",
+      );
+    } else {
+      // Nothing available yet — honest empty response
+      source = "live";
+    }
+  }
 
   // Sort by confidence desc, take top 8
   const sorted = [...allPicks].sort((a, b) => b.confidence - a.confidence).slice(0, 8);
@@ -152,6 +176,7 @@ router.get("/portal/picks/preview", (_req: Request, res: Response) => {
     picks,
     totalAvailable: allPicks.length,
     lockedCount: Math.max(0, sorted.length - UNLOCKED_COUNT),
+    source,
   });
 
   res.json(response);

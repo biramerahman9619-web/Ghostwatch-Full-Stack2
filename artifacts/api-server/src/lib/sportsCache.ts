@@ -792,6 +792,35 @@ export function getCacheStatus() {
   };
 }
 
+// ─── Snapshot read-only access ───────────────────────────────────────────────
+
+/**
+ * Reads picks from the on-disk snapshot WITHOUT mutating in-memory state.
+ *
+ * Used by the portal preview endpoint as a cold-start fallback: when the
+ * live in-memory cache is empty (server just restarted and the first live
+ * refresh hasn't completed yet), the portal can still serve real picks from
+ * the most-recently persisted snapshot rather than showing an empty screen.
+ *
+ * Returns `{ picks, savedAt }` on success, or `null` if no valid snapshot
+ * exists or the file fails schema validation.
+ */
+export function loadPicksFromSnapshot(): { picks: GeneratedPick[]; savedAt: string } | null {
+  const snapshotPath = getSnapshotPath();
+  try {
+    if (!fs.existsSync(snapshotPath)) return null;
+    const raw = fs.readFileSync(snapshotPath, "utf-8");
+    const parsed = SnapshotPayloadSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success) return null;
+    return {
+      picks: parsed.data.picks as unknown as GeneratedPick[],
+      savedAt: parsed.data.savedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
 /**

@@ -41,10 +41,18 @@ vi.mock("../lib/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-// ─── Mock sportsCache (not used in subscribers route but imported by portal.ts) ─
+// ─── Mock sportsCache ─────────────────────────────────────────────────────────
+
+const { mockGetPicks, mockLoadPicksFromSnapshot, mockGetCacheStatus } = vi.hoisted(() => ({
+  mockGetPicks: vi.fn(() => [] as any[]),
+  mockLoadPicksFromSnapshot: vi.fn(() => null as { picks: any[]; savedAt: string } | null),
+  mockGetCacheStatus: vi.fn(() => ({ source: "live" as "live" | "snapshot" | "mock" })),
+}));
 
 vi.mock("../lib/sportsCache.js", () => ({
-  getPicks: vi.fn(() => []),
+  getPicks: mockGetPicks,
+  loadPicksFromSnapshot: mockLoadPicksFromSnapshot,
+  getCacheStatus: mockGetCacheStatus,
 }));
 
 // ─── Mock email helpers ────────────────────────────────────────────────────────
@@ -85,6 +93,93 @@ function makeApp(userId?: string) {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
+
+// ─── Sample pick fixture ──────────────────────────────────────────────────────
+
+function makePick(id: string) {
+  return {
+    id,
+    playerName: `Player ${id}`,
+    team: "TeamA",
+    opponent: "TeamB",
+    sport: "NBA",
+    propType: "Points",
+    line: 22.5,
+    direction: "Over" as const,
+    projection: 25,
+    confidence: 78,
+    riskTier: "Balanced" as const,
+    explanation: "test",
+    socialImpact: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+// ─── GET /portal/picks/preview ────────────────────────────────────────────────
+
+describe("GET /portal/picks/preview", () => {
+  beforeEach(() => {
+    mockGetPicks.mockReturnValue([]);
+    mockLoadPicksFromSnapshot.mockReturnValue(null);
+    mockGetCacheStatus.mockReturnValue({ source: "live" });
+  });
+
+  it("returns source=live when in-memory picks are present", async () => {
+    mockGetPicks.mockReturnValue([makePick("p1"), makePick("p2")]);
+    mockGetCacheStatus.mockReturnValue({ source: "live" });
+
+    const res = await request(makeApp()).get("/portal/picks/preview");
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("live");
+    expect(res.body.picks.length).toBeGreaterThan(0);
+  });
+
+  it("returns source=snapshot when in-memory cache source is snapshot", async () => {
+    mockGetPicks.mockReturnValue([makePick("p1")]);
+    mockGetCacheStatus.mockReturnValue({ source: "snapshot" });
+
+    const res = await request(makeApp()).get("/portal/picks/preview");
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("snapshot");
+  });
+
+  it("falls back to disk snapshot when live cache is empty and snapshot has picks", async () => {
+    mockGetPicks.mockReturnValue([]);
+    mockGetCacheStatus.mockReturnValue({ source: "live" });
+    mockLoadPicksFromSnapshot.mockReturnValue({
+      picks: [makePick("snap1"), makePick("snap2")],
+      savedAt: "2026-08-01T12:00:00Z",
+    });
+
+    const res = await request(makeApp()).get("/portal/picks/preview");
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("snapshot");
+    expect(res.body.picks.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty picks with source=live when both cache and snapshot are empty", async () => {
+    mockGetPicks.mockReturnValue([]);
+    mockLoadPicksFromSnapshot.mockReturnValue(null);
+
+    const res = await request(makeApp()).get("/portal/picks/preview");
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("live");
+    expect(res.body.picks).toHaveLength(0);
+    expect(res.body.totalAvailable).toBe(0);
+  });
+
+  it("returns empty picks with source=live when snapshot has no picks", async () => {
+    mockGetPicks.mockReturnValue([]);
+    mockLoadPicksFromSnapshot.mockReturnValue({ picks: [], savedAt: "2026-08-01T12:00:00Z" });
+
+    const res = await request(makeApp()).get("/portal/picks/preview");
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("live");
+    expect(res.body.picks).toHaveLength(0);
+  });
+});
+
+// ─── GET /portal/subscribers ──────────────────────────────────────────────────
 
 describe("GET /portal/subscribers", () => {
   const originalEnv = process.env["OPERATOR_USER_IDS"];

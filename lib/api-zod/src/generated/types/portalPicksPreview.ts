@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PortalPickPreview } from './portalPickPreview';
+import type { PortalPicksPreviewSource } from './portalPicksPreviewSource';
 
 export interface PortalPicksPreview {
   picks: PortalPickPreview[];
   totalAvailable: number;
   lockedCount: number;
+  /** Whether picks came from the live in-memory cache or the on-disk snapshot fallback */
+  source: PortalPicksPreviewSource;
 }
