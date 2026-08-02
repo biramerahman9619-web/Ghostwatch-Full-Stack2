@@ -102,12 +102,24 @@ export default function Ghostspere() {
         ticketIds: Array.from(selectedTickets)
       }
     }, {
-      onSuccess: () => {
-        toast({
-          title: "Tickets dispatched",
-          description: `Sent ${selectedTickets.size} ticket${selectedTickets.size !== 1 ? 's' : ''} to ${settings.email}`,
-          className: "border-primary bg-card text-primary font-mono",
-        });
+      onSuccess: (data: any) => {
+        const skipped: number = data?.skipped ?? 0;
+        const dispatched: number = data?.dispatched ?? selectedTickets.size;
+        if (skipped > 0) {
+          toast({
+            title: `${dispatched} ticket${dispatched !== 1 ? 's' : ''} dispatched`,
+            description: `${skipped} ticket${skipped !== 1 ? 's' : ''} expired mid-session and were skipped — ticket list refreshed.`,
+            className: "border-yellow-500/50 bg-card text-yellow-400 font-mono",
+          });
+          // Picks rotated — refresh list immediately so current tickets are shown
+          queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
+        } else {
+          toast({
+            title: "Tickets dispatched",
+            description: `Sent ${dispatched} ticket${dispatched !== 1 ? 's' : ''} to ${settings.email}`,
+            className: "border-primary bg-card text-primary font-mono",
+          });
+        }
         setSelectedTickets(new Set());
       },
       onError: (err: any) => {

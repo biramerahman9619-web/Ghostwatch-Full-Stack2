@@ -405,7 +405,9 @@ export const SendTicketEmailBody = zod.object({
 
 export const SendTicketEmailResponse = zod.object({
   "success": zod.boolean(),
-  "message": zod.string()
+  "message": zod.string(),
+  "dispatched": zod.number().optional(),
+  "skipped": zod.number().optional()
 })
 
 

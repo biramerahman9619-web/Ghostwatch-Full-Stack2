@@ -9,7 +9,7 @@ import {
   SendTicketEmailResponse,
 } from "@workspace/api-zod";
 import { getPicks } from "../lib/sportsCache.js";
-import { buildTicketsFromPicks } from "../lib/picksEngine.js";
+import { buildTicketsFromPicks, resolveTickets } from "../lib/picksEngine.js";
 import { buildEmailHtml, buildEmailText } from "../lib/emailTemplate.js";
 import { logger } from "../lib/logger.js";
 
@@ -181,10 +181,14 @@ router.post("/ghostspere/send-email", async (req, res): Promise<void> => {
     | "Mixed";
 
   const allTickets = buildTicketsFromPicks(getPicks(), emailPicksPerTicket, emailRiskProfile);
-  const selectedTickets = allTickets.filter((t) => ticketIds.includes(t.id));
+  const { matched: selectedTickets, skippedCount } = resolveTickets(allTickets, ticketIds);
 
   if (selectedTickets.length === 0) {
-    res.status(400).json({ error: "None of the requested ticket IDs were found." });
+    res.status(400).json({
+      error:
+        "All selected tickets have expired — picks rotated since you loaded this page. " +
+        "Refresh the ticket list and select again.",
+    });
     return;
   }
 
@@ -223,10 +227,17 @@ router.post("/ghostspere/send-email", async (req, res): Promise<void> => {
 
     req.log.info({ userId, ticketCount, to: settingsEmail }, "Email dispatched successfully");
 
+    const skippedSuffix =
+      skippedCount > 0
+        ? ` (${skippedCount} ticket${skippedCount !== 1 ? "s" : ""} expired and skipped)`
+        : "";
+
     res.json(
       SendTicketEmailResponse.parse({
         success: true,
-        message: `Ghostspere dispatched ${ticketCount} ticket${ticketCount !== 1 ? "s" : ""} (${sportLabel}) to ${settingsEmail} — ${dateLabel}`,
+        dispatched: ticketCount,
+        skipped: skippedCount,
+        message: `Ghostspere dispatched ${ticketCount} ticket${ticketCount !== 1 ? "s" : ""} (${sportLabel}) to ${settingsEmail} — ${dateLabel}${skippedSuffix}`,
       }),
     );
   } catch (err) {

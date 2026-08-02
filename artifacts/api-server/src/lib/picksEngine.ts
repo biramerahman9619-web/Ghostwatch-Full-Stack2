@@ -870,6 +870,21 @@ export function buildTicketsFromPicks(
   return tickets;
 }
 
+/**
+ * Match a list of requested ticket IDs against a freshly-built ticket set.
+ * Returns the matched tickets plus a count of how many IDs went unmatched
+ * (i.e. were requested but couldn't be found — typically because picks
+ * rotated mid-session and the deterministic ID changed).
+ */
+export function resolveTickets(
+  allTickets: ReturnType<typeof buildTicketsFromPicks>,
+  requestedIds: string[],
+): { matched: ReturnType<typeof buildTicketsFromPicks>; skippedCount: number } {
+  const idSet = new Set(requestedIds);
+  const matched = allTickets.filter((t) => idSet.has(t.id));
+  return { matched, skippedCount: requestedIds.length - matched.length };
+}
+
 /** Derive a projected stat value: slightly above/below the line based on direction */
 function deriveProjection(line: number, direction: "Over" | "Under", confidence: number): number {
   const edge = line * (0.04 + (confidence - 50) * 0.001); // 4–9% edge depending on confidence
