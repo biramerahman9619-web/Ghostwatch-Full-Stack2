@@ -1,12 +1,13 @@
-import { useListPicks, useGetPicksSummary, useGetTopPicks, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey, getListPicksQueryKey, getGetPicksSummaryQueryKey, getGetTopPicksQueryKey, useTriggerRefresh } from "@workspace/api-client-react";
+import { useListPicks, useGetPicksSummary, useGetTopPicks, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey, getListPicksQueryKey, getGetPicksSummaryQueryKey, getGetTopPicksQueryKey, useTriggerRefresh, useGetPortalSubscribers, getGetPortalSubscribersQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Activity, Target, AlertTriangle, CheckCircle2, TrendingUp, Trophy, ArrowRight, Crosshair, RefreshCw } from "lucide-react";
+import { Activity, Target, AlertTriangle, CheckCircle2, TrendingUp, Trophy, ArrowRight, Crosshair, RefreshCw, Users } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 
 function RiskTierBadge({ tier }: { tier: string }) {
   const t = tier.toLowerCase();
@@ -74,6 +75,131 @@ function PickCard({ pick }: { pick: any }) {
             {pick.explanation}
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PortalWidget() {
+  const { data, isLoading, isError, error } = useGetPortalSubscribers({
+    query: {
+      queryKey: getGetPortalSubscribersQueryKey(),
+      refetchInterval: 60_000,
+      retry: false,
+    },
+  });
+
+  // 401 / 403 — this user is not an operator; hide the widget entirely
+  const status = (error as any)?.response?.status;
+  if (isError && (status === 401 || status === 403)) return null;
+
+  // Other error (e.g. 500, network failure) — show unavailable state
+  const hasOtherError = isError && status !== 401 && status !== 403;
+
+  const sparkData = data?.dailyCounts ?? Array.from({ length: 7 }, (_, i) => ({
+    date: "",
+    count: 0,
+  }));
+
+  return (
+    <Card className="bg-secondary/30 border-border/50">
+      <CardHeader className="pb-2 pt-4 px-5">
+        <CardTitle className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+          <Users className="w-3.5 h-3.5 text-primary" />
+          Portal Subscribers
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-5 pb-4">
+        {hasOtherError ? (
+          <div className="text-[11px] font-mono text-muted-foreground text-center py-4">
+            <span className="text-destructive/70">UNAVAILABLE</span>
+            <div className="mt-1 text-[9px]">Could not load subscriber data</div>
+          </div>
+        ) : isLoading ? (
+          <div className="animate-pulse space-y-2">
+            <div className="h-8 w-20 bg-secondary rounded" />
+            <div className="h-16 bg-secondary rounded" />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-end justify-between mb-3">
+              <div>
+                <div className="text-3xl font-mono font-bold text-foreground leading-none">
+                  {data?.total ?? 0}
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-widest">
+                  Total
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={cn(
+                  "text-lg font-mono font-bold leading-none",
+                  (data?.last7Days ?? 0) > 0 ? "text-safe" : "text-muted-foreground"
+                )}>
+                  +{data?.last7Days ?? 0}
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-1 uppercase tracking-widest">
+                  Last 7 days
+                </div>
+              </div>
+            </div>
+
+            {/* Sparkline */}
+            <div className="h-16 -mx-1 mb-3">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sparkData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+                  <defs>
+                    <linearGradient id="subGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Tooltip
+                    content={({ active, payload }) =>
+                      active && payload?.length ? (
+                        <div className="bg-card border border-border rounded px-2 py-1 text-[10px] font-mono text-foreground">
+                          {payload[0]?.payload?.date}: <span className="text-primary">{payload[0]?.value}</span>
+                        </div>
+                      ) : null
+                    }
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={1.5}
+                    fill="url(#subGrad)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Recent sign-ups */}
+            {data?.recent && data.recent.length > 0 && (
+              <div className="space-y-1.5 border-t border-border/50 pt-3">
+                <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground mb-2">Recent</div>
+                {data.recent.slice(0, 5).map((sub) => (
+                  <div key={sub.id} className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] text-foreground truncate flex-1">
+                      {sub.email}
+                    </span>
+                    <span className="font-mono text-[9px] text-muted-foreground shrink-0">
+                      {new Date(sub.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(!data?.recent || data.recent.length === 0) && (
+              <div className="text-[11px] font-mono text-muted-foreground text-center py-2 border-t border-border/50 pt-3">
+                No subscribers yet
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -275,7 +401,16 @@ export default function Dashboard() {
       </header>
 
       <div className="p-6 flex-1 flex flex-col gap-6">
-        
+
+        {/* Portal subscriber widget */}
+        <section>
+          <div className="grid grid-cols-4 gap-4">
+            <div className="col-span-1">
+              <PortalWidget />
+            </div>
+          </div>
+        </section>
+
         {/* Top Picks Horizontal List */}
         {topPicks && topPicks.length > 0 && (
           <section>

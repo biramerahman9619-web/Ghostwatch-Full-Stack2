@@ -521,6 +521,26 @@ export const GetPortalStatsResponse = zod.object({
 
 
 /**
+ * @summary Operator view — subscriber counts and recent sign-ups (requires auth)
+ */
+export const GetPortalSubscribersResponse = zod.object({
+  "total": zod.number(),
+  "last7Days": zod.number(),
+  "dailyCounts": zod.array(zod.object({
+  "date": zod.string(),
+  "count": zod.number()
+})),
+  "recent": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "name": zod.string().nullish(),
+  "source": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
  * @summary Get current user settings
  */
 export const GetSettingsResponse = zod.object({

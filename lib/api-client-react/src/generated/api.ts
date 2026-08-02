@@ -54,6 +54,7 @@ import type {
   PortalStats,
   PortalSubscribeInput,
   PortalSubscribeResult,
+  PortalSubscribersResponse,
   RefreshStartedResponse,
   Signal,
   SocialAlert,
@@ -2404,6 +2405,83 @@ export function useGetPortalStats<TData = Awaited<ReturnType<typeof getPortalSta
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetPortalStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPortalSubscribersUrl = () => {
+
+
+
+
+  return `/api/portal/subscribers`
+}
+
+/**
+ * @summary Operator view — subscriber counts and recent sign-ups (requires auth)
+ */
+export const getPortalSubscribers = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortalSubscribersResponse> => {
+
+  return customFetch<PortalSubscribersResponse>(getGetPortalSubscribersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPortalSubscribersQueryKey = () => {
+    return [
+    `/api/portal/subscribers`
+    ] as const;
+    }
+
+
+export const getGetPortalSubscribersQueryOptions = <TData = Awaited<ReturnType<typeof getPortalSubscribers>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalSubscribers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPortalSubscribersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPortalSubscribers>>> = ({ signal }) => getPortalSubscribers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPortalSubscribers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPortalSubscribersQueryResult = NonNullable<Awaited<ReturnType<typeof getPortalSubscribers>>>
+export type GetPortalSubscribersQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Operator view — subscriber counts and recent sign-ups (requires auth)
+ */
+
+export function useGetPortalSubscribers<TData = Awaited<ReturnType<typeof getPortalSubscribers>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalSubscribers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPortalSubscribersQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

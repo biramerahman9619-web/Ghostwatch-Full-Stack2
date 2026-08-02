@@ -535,6 +535,27 @@ export interface PortalStats {
   avgConfidence: number;
 }
 
+export interface PortalDailyCount {
+  date: string;
+  count: number;
+}
+
+export interface PortalRecentSubscriber {
+  id: number;
+  email: string;
+  /** @nullable */
+  name?: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface PortalSubscribersResponse {
+  total: number;
+  last7Days: number;
+  dailyCounts: PortalDailyCount[];
+  recent: PortalRecentSubscriber[];
+}
+
 /**
  * Opaque session token — `Bearer <sid>`.
  */
