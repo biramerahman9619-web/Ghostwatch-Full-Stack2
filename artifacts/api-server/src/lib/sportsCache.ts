@@ -44,6 +44,7 @@
  */
 
 import * as fs from "node:fs";
+import { z } from "zod";
 import {
   fetchEvents,
   fetchScores,
@@ -149,6 +150,98 @@ export function isDataStale(): boolean {
 
 const SNAPSHOT_VERSION = 1 as const;
 
+// ── Zod schemas for runtime validation of snapshot entries ───────────────────
+//    passthrough() allows extra fields (future additions) without rejection.
+
+const SnapshotPickSchema = z.object({
+  id: z.string(),
+  playerName: z.string(),
+  team: z.string(),
+  opponent: z.string(),
+  sport: z.string(),
+  propType: z.string(),
+  line: z.number(),
+  direction: z.enum(["Over", "Under"]),
+  projection: z.number(),
+  confidence: z.number(),
+  riskTier: z.enum(["Safe", "Balanced", "Aggressive"]),
+  explanation: z.string(),
+  socialImpact: z.number().nullable(),
+  createdAt: z.string(),
+}).passthrough();
+
+const SnapshotGameSchema = z.object({
+  id: z.string(),
+  homeTeam: z.string(),
+  awayTeam: z.string(),
+  sport: z.string(),
+  scheduledAt: z.string(),
+  status: z.enum(["Scheduled", "Live", "Final"]),
+  homeScore: z.number().nullable(),
+  awayScore: z.number().nullable(),
+  quarter: z.string().nullable(),
+  timeRemaining: z.string().nullable(),
+}).passthrough();
+
+const SnapshotLiveGameSchema = z.object({
+  id: z.string(),
+  homeTeam: z.string(),
+  awayTeam: z.string(),
+  sport: z.string(),
+  homeScore: z.number(),
+  awayScore: z.number(),
+  quarter: z.string(),
+  timeRemaining: z.string(),
+  pace: z.enum(["Slow", "Normal", "Fast"]),
+  status: z.enum(["Live", "Halftime", "Final"]),
+}).passthrough();
+
+const SnapshotTicketSchema = z.object({
+  id: z.string(),
+  riskTier: z.enum(["Safe", "Balanced", "Aggressive"]),
+  picks: z.array(SnapshotPickSchema),
+  combinedConfidence: z.number(),
+  sport: z.string(),
+  createdAt: z.string(),
+}).passthrough();
+
+/**
+ * savedAt validator: ISO 8601 prefix regex + finite parse + calendar-date
+ * normalization to reject invalid dates such as "2026-02-31T00:00:00Z"
+ * that some engines roll over to the next month.
+ */
+const ISO_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+const SnapshotSavedAtSchema = z.string().refine(
+  (s) => {
+    if (!ISO_PREFIX.test(s)) return false;
+    const ms = Date.parse(s);
+    if (!Number.isFinite(ms)) return false;
+    // Re-serialise and compare the YYYY-MM-DD portion to catch rolled-over
+    // invalid calendar dates (e.g. Feb 31 → Mar 3).
+    const inputDate = s.substring(0, 10);
+    const normalizedDate = new Date(ms).toISOString().substring(0, 10);
+    return inputDate === normalizedDate;
+  },
+  { message: "savedAt must be a valid ISO 8601 timestamp with a real calendar date" },
+);
+
+const SnapshotPayloadSchema = z.object({
+  version: z.literal(SNAPSHOT_VERSION),
+  savedAt: SnapshotSavedAtSchema,
+  games: z.array(SnapshotGameSchema),
+  picks: z.array(SnapshotPickSchema),
+  liveGames: z.array(SnapshotLiveGameSchema),
+  tickets: z.array(SnapshotTicketSchema),
+});
+
+/**
+ * Write-side type: plain interface used by snapshotCache() when serialising
+ * in-memory cache state. The real generated types are assignable here.
+ *
+ * Load-side validation uses SnapshotPayloadSchema.safeParse() at runtime and
+ * then casts the validated data back to the generated types.
+ */
 interface SnapshotPayload {
   version: typeof SNAPSHOT_VERSION;
   savedAt: string; // ISO 8601
@@ -202,6 +295,11 @@ function snapshotCache(): void {
  * Called at startup, before the first live refresh, when THE_ODDS_API_KEY is set.
  * Returns true if the snapshot was loaded successfully.
  *
+ * The entire payload is validated with Zod before any state mutation.
+ * A snapshot that fails validation (wrong version, bad date, missing fields,
+ * invalid enum values, wrong collection shapes) is silently ignored — state
+ * is never partially updated.
+ *
  * On success the cache serves source="snapshot" data until a live refresh
  * replaces it with source="live" data.
  */
@@ -212,36 +310,24 @@ function loadSnapshot(): boolean {
     if (!fs.existsSync(snapshotPath)) return false;
 
     const raw = fs.readFileSync(snapshotPath, "utf-8");
-    const payload = JSON.parse(raw) as Partial<SnapshotPayload>;
+    const parsed = SnapshotPayloadSchema.safeParse(JSON.parse(raw));
 
-    if (payload.version !== SNAPSHOT_VERSION) {
+    if (!parsed.success) {
       logger.warn(
-        { version: payload.version, expected: SNAPSHOT_VERSION },
-        "[SportsCache] Snapshot version mismatch — ignoring",
+        { issues: parsed.error.issues.slice(0, 3) }, // cap log size
+        "[SportsCache] Snapshot failed schema validation — ignoring",
       );
       return false;
     }
 
-    if (!payload.savedAt || !Array.isArray(payload.picks)) {
-      logger.warn("[SportsCache] Snapshot missing required fields — ignoring");
-      return false;
-    }
-
-    // Validate savedAt before committing — an invalid date string would produce
-    // an Invalid Date whose toISOString() call throws, breaking getCacheStatus().
+    const payload: SnapshotPayload = parsed.data;
     const savedAtMs = Date.parse(payload.savedAt);
-    if (!Number.isFinite(savedAtMs)) {
-      logger.warn(
-        { savedAt: payload.savedAt },
-        "[SportsCache] Snapshot has invalid savedAt timestamp — ignoring",
-      );
-      return false;
-    }
 
-    state.games = (payload.games ?? []) as GeneratedGame[];
-    state.picks = payload.picks as GeneratedPick[];
-    state.liveGames = (payload.liveGames ?? []) as GeneratedLiveGame[];
-    state.tickets = (payload.tickets ?? []) as CacheState["tickets"];
+    // Commit all-or-nothing — all guards already passed inside safeParse.
+    state.games = payload.games as unknown as GeneratedGame[];
+    state.picks = payload.picks as unknown as GeneratedPick[];
+    state.liveGames = payload.liveGames as unknown as GeneratedLiveGame[];
+    state.tickets = payload.tickets as unknown as CacheState["tickets"];
     state.livePicks = [];
     state.signals = {};
     state.usingRealData = true;
@@ -546,6 +632,18 @@ export function getCacheStatus(): {
 }
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Exposes snapshotCache() for unit testing.
+ * ONLY for use in test files — never call in production code.
+ */
+export const _snapshotCacheForTesting = snapshotCache;
+
+/**
+ * Exposes loadSnapshot() for unit testing.
+ * ONLY for use in test files — never call in production code.
+ */
+export const _loadSnapshotForTesting = loadSnapshot;
 
 /**
  * Resets module-level state to its initial values.
