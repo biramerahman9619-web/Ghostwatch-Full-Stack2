@@ -350,11 +350,23 @@ export const TicketRiskTier = {
   Safe: 'Safe',
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
+  Mixed: 'Mixed',
+} as const;
+
+export type TicketEntryType = typeof TicketEntryType[keyof typeof TicketEntryType];
+
+
+export const TicketEntryType = {
+  PowerPlay: 'PowerPlay',
+  FlexPlay: 'FlexPlay',
 } as const;
 
 export interface Ticket {
   id: string;
   riskTier: TicketRiskTier;
+  entryType: TicketEntryType;
+  payoutMultiplier: number;
+  winProbability: number;
   picks: Pick[];
   combinedConfidence: number;
   sport: string;

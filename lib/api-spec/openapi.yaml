@@ -961,10 +961,13 @@ components:
     # ─── Ghostspere ──────────────────────────────────────────────────────────
     Ticket:
       type: object
-      required: [id, riskTier, picks, combinedConfidence, sport, createdAt]
+      required: [id, riskTier, entryType, payoutMultiplier, winProbability, picks, combinedConfidence, sport, createdAt]
       properties:
         id: { type: string }
-        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive, Mixed] }
+        entryType: { type: string, enum: [PowerPlay, FlexPlay] }
+        payoutMultiplier: { type: number }
+        winProbability: { type: number }
         picks:
           type: array
           items:

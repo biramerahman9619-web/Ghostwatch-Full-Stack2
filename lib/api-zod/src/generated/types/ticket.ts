@@ -6,11 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Pick } from './pick';
+import type { TicketEntryType } from './ticketEntryType';
 import type { TicketRiskTier } from './ticketRiskTier';
 
 export interface Ticket {
   id: string;
   riskTier: TicketRiskTier;
+  entryType: TicketEntryType;
+  payoutMultiplier: number;
+  winProbability: number;
   picks: Pick[];
   combinedConfidence: number;
   sport: string;

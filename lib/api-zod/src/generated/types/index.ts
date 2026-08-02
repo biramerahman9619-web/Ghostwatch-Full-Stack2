@@ -82,6 +82,7 @@ export * from './teamPulse';
 export * from './teamPulseDramaLevel';
 export * from './teamPulseTravelFatigue';
 export * from './ticket';
+export * from './ticketEntryType';
 export * from './ticketEvaluation';
 export * from './ticketRiskTier';
 export * from './userSettings';
