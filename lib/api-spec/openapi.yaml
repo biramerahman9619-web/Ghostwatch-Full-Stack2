@@ -522,6 +522,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentTicketEvaluations"
 
+  /ghostspere/player-form:
+    get:
+      operationId: getPlayerForm
+      tags: [ghostspere]
+      summary: Fetch a player's last-5-games form + injury status for a given prop type and line
+      parameters:
+        - name: player
+          in: query
+          required: true
+          schema: { type: string }
+        - name: sport
+          in: query
+          required: true
+          schema: { type: string }
+        - name: prop
+          in: query
+          required: true
+          schema: { type: string }
+        - name: line
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Player form summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerFormSummary"
+        "404":
+          description: Form data unavailable for this player/prop combination
+
   /ghostspere/pick-results:
     get:
       operationId: listPickResults
@@ -1109,6 +1141,33 @@ components:
       required: [message]
       properties:
         message: { type: string }
+
+    PlayerFormGame:
+      type: object
+      required: [date, opponent, homeAway, statValue, rawStats]
+      properties:
+        date: { type: string }
+        opponent: { type: string }
+        homeAway: { type: string, enum: [home, away] }
+        statValue: { type: number }
+        rawStats: { type: string }
+
+    PlayerFormSummary:
+      type: object
+      required: [athleteId, displayName, status, last5, trend, gamesAboveLine, gamesBelowLine]
+      properties:
+        athleteId: { type: string }
+        displayName: { type: string }
+        status: { type: string, enum: [Active, Questionable, Doubtful, Out, Unknown] }
+        injuryNote: { type: ["string", "null"] }
+        last5:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlayerFormGame"
+        avg5: { type: ["number", "null"] }
+        trend: { type: string, enum: [Hot, Cold, Neutral] }
+        gamesAboveLine: { type: number }
+        gamesBelowLine: { type: number }
 
     PickWithResult:
       type: object

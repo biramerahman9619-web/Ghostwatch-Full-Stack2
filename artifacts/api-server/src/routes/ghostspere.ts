@@ -16,7 +16,7 @@ import {
   SendAgentChatBody,
 } from "@workspace/api-zod";
 import { getPicks, getGames, getLiveGames } from "../lib/sportsCache.js";
-import { autoSettlePick } from "../lib/espnStats.js";
+import { autoSettlePick, getPlayerRecentForm } from "../lib/espnStats.js";
 import { buildTicketsFromPicks, resolveTickets } from "../lib/picksEngine.js";
 import { buildEmailHtml, buildEmailText } from "../lib/emailTemplate.js";
 import { logger } from "../lib/logger.js";
@@ -616,6 +616,27 @@ router.post("/ghostspere/pick-results/:pickId", async (req, res): Promise<void> 
   }
 
   res.json({ pickId, result });
+});
+
+// ─── Player form / recent performance ─────────────────────────────────────────
+
+router.get("/ghostspere/player-form", async (req, res): Promise<void> => {
+  const { player, sport, prop, line } = req.query as Record<string, string>;
+  if (!player || !sport || !prop || !line) {
+    res.status(400).json({ error: "Required query params: player, sport, prop, line" });
+    return;
+  }
+  const lineNum = parseFloat(line);
+  if (isNaN(lineNum)) {
+    res.status(400).json({ error: "line must be a number" });
+    return;
+  }
+  const form = await getPlayerRecentForm(player, sport, prop, lineNum);
+  if (!form) {
+    res.status(404).json({ error: "Form data unavailable for this player/prop combination" });
+    return;
+  }
+  res.json(form);
 });
 
 export default router;

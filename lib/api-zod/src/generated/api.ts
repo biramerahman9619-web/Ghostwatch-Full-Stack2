@@ -512,6 +512,35 @@ export const EvaluateAgentTicketsResponse = zod.object({
 
 
 /**
+ * @summary Fetch a player's last-5-games form + injury status for a given prop type and line
+ */
+export const GetPlayerFormQueryParams = zod.object({
+  "player": zod.coerce.string(),
+  "sport": zod.coerce.string(),
+  "prop": zod.coerce.string(),
+  "line": zod.coerce.number()
+})
+
+export const GetPlayerFormResponse = zod.object({
+  "athleteId": zod.string(),
+  "displayName": zod.string(),
+  "status": zod.enum(['Active', 'Questionable', 'Doubtful', 'Out', 'Unknown']),
+  "injuryNote": zod.string().nullish(),
+  "last5": zod.array(zod.object({
+  "date": zod.string(),
+  "opponent": zod.string(),
+  "homeAway": zod.enum(['home', 'away']),
+  "statValue": zod.number(),
+  "rawStats": zod.string()
+})),
+  "avg5": zod.number().nullish(),
+  "trend": zod.enum(['Hot', 'Cold', 'Neutral']),
+  "gamesAboveLine": zod.number(),
+  "gamesBelowLine": zod.number()
+})
+
+
+/**
  * @summary All picks from today's tickets enriched with live game status and manual result
  */
 export const ListPickResultsResponseItem = zod.object({
