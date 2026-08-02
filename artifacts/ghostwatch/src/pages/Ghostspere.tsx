@@ -1,8 +1,8 @@
-import { useListTickets, useSendTicketEmail, useGetSettings, useUpdateSettings } from "@workspace/api-client-react";
+import { useListTickets, useSendTicketEmail, useGetSettings, useUpdateSettings, getListTicketsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bot, Mail, Settings2, ShieldCheck, Zap, SplitSquareHorizontal, RefreshCw } from "lucide-react";
+import { Bot, Mail, Settings2, Shuffle, SplitSquareHorizontal } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
   if (ticket.riskTier === 'Safe') tierColor = "border-safe/30 text-safe";
   if (ticket.riskTier === 'Aggressive') tierColor = "border-aggressive/30 text-aggressive";
   if (ticket.riskTier === 'Balanced') tierColor = "border-balanced/30 text-balanced";
+  if (ticket.riskTier === 'Mixed') tierColor = "border-purple-400/30 text-purple-400";
 
   return (
     <Card 
@@ -65,14 +66,14 @@ export default function Ghostspere() {
 
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
   const [editEmail, setEditEmail] = useState<string>("");
-  const [editRisk, setEditRisk] = useState<any>("Balanced");
+  const [editRisk, setEditRisk] = useState<"Safe" | "Balanced" | "Aggressive" | "Mixed">("Balanced");
   const [editPicks, setEditPicks] = useState<number>(3);
 
   // Sync settings when loaded
   useEffect(() => {
     if (settings) {
       setEditEmail(settings.email || "");
-      setEditRisk(settings.riskProfile || "Balanced");
+      setEditRisk((settings.riskProfile as any) || "Balanced");
       setEditPicks(settings.picksPerTicket || 3);
     }
   }, [settings]);
@@ -127,7 +128,7 @@ export default function Ghostspere() {
     updateSettings.mutate({
       data: {
         email: editEmail,
-        riskProfile: editRisk,
+        riskProfile: editRisk as any,
         picksPerTicket: editPicks,
       }
     }, {
@@ -137,7 +138,9 @@ export default function Ghostspere() {
           description: "Butler settings have been saved successfully.",
           className: "border-primary bg-card text-primary font-mono",
         });
+        // Refresh both settings and tickets so the new config is immediately reflected
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
       }
     });
   };
@@ -222,17 +225,30 @@ export default function Ghostspere() {
 
               <div>
                 <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Risk Profile</label>
-                <div className="flex items-center gap-2 bg-secondary/30 p-1 rounded-md border border-border">
-                  {['Safe', 'Balanced', 'Aggressive'].map(tier => (
+                <div className="grid grid-cols-2 gap-1.5 bg-secondary/30 p-1.5 rounded-md border border-border">
+                  {[
+                    { value: 'Safe', label: 'Safe', desc: 'High confidence' },
+                    { value: 'Balanced', label: 'Balanced', desc: 'Moderate edge' },
+                    { value: 'Aggressive', label: 'Aggressive', desc: 'High ceiling' },
+                    { value: 'Mixed', label: '⚡ Mixed', desc: 'Best of all tiers' },
+                  ].map(({ value, label, desc }) => (
                     <button 
-                      key={tier}
-                      onClick={() => setEditRisk(tier)}
+                      key={value}
+                      onClick={() => setEditRisk(value as any)}
                       className={cn(
-                        "flex-1 text-center py-1.5 text-xs font-mono uppercase rounded transition-colors",
-                        editRisk === tier ? "bg-primary text-primary-foreground font-bold shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        "flex flex-col items-center py-2 px-1 text-xs font-mono rounded transition-all border",
+                        editRisk === value
+                          ? value === 'Mixed'
+                            ? "bg-purple-500/20 border-purple-400/50 text-purple-300 font-bold shadow-sm"
+                            : "bg-primary/20 border-primary/50 text-primary font-bold shadow-sm"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                       )}
                     >
-                      {tier}
+                      <span className="uppercase tracking-wide">{label}</span>
+                      <span className={cn(
+                        "text-[9px] mt-0.5 normal-case tracking-normal font-normal",
+                        editRisk === value ? "opacity-80" : "opacity-50"
+                      )}>{desc}</span>
                     </button>
                   ))}
                 </div>

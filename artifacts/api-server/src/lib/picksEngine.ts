@@ -780,27 +780,85 @@ export async function buildPicksFromEvents(
   }));
 }
 
-export function buildTicketsFromPicks(picks: GeneratedPick[], picksPerTicket: number = 3) {
+/** Deterministic ID from a set of pick IDs — stable across repeated calls with same picks */
+function ticketId(mode: string, picks: GeneratedPick[]): string {
+  const sorted = picks.map((p) => p.id).sort().join("|");
+  let h = 0;
+  for (const c of sorted) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
+  return `ticket-${mode.toLowerCase()}-${Math.abs(h).toString(36)}`;
+}
+
+export function buildTicketsFromPicks(
+  picks: GeneratedPick[],
+  picksPerTicket: number = 3,
+  mode: "Safe" | "Balanced" | "Aggressive" | "Mixed" = "Balanced",
+) {
   // Clamp to valid range (3–6)
   const size = Math.min(6, Math.max(3, Math.round(picksPerTicket)));
-  const tiers: Array<"Safe" | "Balanced" | "Aggressive"> = ["Safe", "Balanced", "Aggressive"];
-  const tickets = [];
+  const tickets: Array<{
+    id: string;
+    riskTier: string;
+    picks: GeneratedPick[];
+    combinedConfidence: number;
+    sport: string;
+    createdAt: string;
+  }> = [];
 
-  for (const tier of tiers) {
-    const tierPicks = picks.filter((p) => p.riskTier === tier);
-    if (!tierPicks.length) continue;
+  if (mode === "Mixed") {
+    // Interleave picks from all three tiers (round-robin by tier, sorted by confidence within each)
+    // so every ticket gets a diverse blend of Safe + Balanced + Aggressive picks.
+    const safe = picks
+      .filter((p) => p.riskTier === "Safe")
+      .sort((a, b) => b.confidence - a.confidence);
+    const balanced = picks
+      .filter((p) => p.riskTier === "Balanced")
+      .sort((a, b) => b.confidence - a.confidence);
+    const aggressive = picks
+      .filter((p) => p.riskTier === "Aggressive")
+      .sort((a, b) => b.confidence - a.confidence);
 
-    // Group into tickets of `size` picks each
-    for (let i = 0; i < tierPicks.length; i += size) {
-      const chunk = tierPicks.slice(i, i + size);
-      if (!chunk.length) continue;
+    // Round-robin interleave: S, B, A, S, B, A, …
+    const interleaved: GeneratedPick[] = [];
+    const maxLen = Math.max(safe.length, balanced.length, aggressive.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (safe[i]) interleaved.push(safe[i]!);
+      if (balanced[i]) interleaved.push(balanced[i]!);
+      if (aggressive[i]) interleaved.push(aggressive[i]!);
+    }
+
+    for (let i = 0; i < interleaved.length; i += size) {
+      const chunk = interleaved.slice(i, i + size);
+      // Require a full ticket (or at least half for the last one)
+      if (chunk.length < Math.max(3, Math.ceil(size / 2))) continue;
 
       const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
       const sports = [...new Set(chunk.map((p) => p.sport))];
 
       tickets.push({
-        id: `ticket-${tier.toLowerCase()}-${i}-${Date.now()}`,
-        riskTier: tier,
+        id: ticketId("mixed", chunk),
+        riskTier: "Mixed",
+        picks: chunk,
+        combinedConfidence: Math.round(avgConf * 10) / 10,
+        sport: sports.length === 1 ? sports[0]! : "Mixed",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  } else {
+    // Single-tier mode — filter to requested tier then chunk
+    const tierPicks = picks
+      .filter((p) => p.riskTier === mode)
+      .sort((a, b) => b.confidence - a.confidence);
+
+    for (let i = 0; i < tierPicks.length; i += size) {
+      const chunk = tierPicks.slice(i, i + size);
+      if (chunk.length < Math.max(3, Math.ceil(size / 2))) continue;
+
+      const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
+      const sports = [...new Set(chunk.map((p) => p.sport))];
+
+      tickets.push({
+        id: ticketId(mode, chunk),
+        riskTier: mode,
         picks: chunk,
         combinedConfidence: Math.round(avgConf * 10) / 10,
         sport: sports.length === 1 ? sports[0]! : "Mixed",
