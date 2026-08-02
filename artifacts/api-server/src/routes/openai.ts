@@ -1,8 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, conversations, messages } from "@workspace/db";
+import { db, conversations, messages, userSettingsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { getPicks, getCacheStatus } from "../lib/sportsCache.js";
+import { buildLivePicksContext } from "../lib/openaiContext.js";
 import {
   ListOpenaiConversationsResponse,
   CreateOpenaiConversationBody,
@@ -46,62 +47,6 @@ const GHOSTPHERE_SYSTEM_PROMPT = `You are Ghostphere — an elite AI sports bett
 Your personality: precise, data-driven, direct. You think like a professional handicapper. You back every recommendation with reasoning. No fluff — just signal.
 
 When answering questions about today's picks, use the LIVE GHOSTWATCH DATA block that will be appended to this prompt — it contains the current picks loaded from The Odds API. Help users build winning tickets from this real data.`;
-
-function buildLivePicksContext(): string {
-  const status = getCacheStatus();
-  const picks = getPicks();
-
-  if (!picks.length) {
-    return "\n\n[GHOSTWATCH DATA: No picks currently loaded — data may be refreshing.]";
-  }
-
-  const byTier = {
-    Safe: picks.filter((p) => p.riskTier === "Safe").length,
-    Balanced: picks.filter((p) => p.riskTier === "Balanced").length,
-    Aggressive: picks.filter((p) => p.riskTier === "Aggressive").length,
-  };
-
-  const bySport: Record<string, number> = {};
-  for (const p of picks) {
-    bySport[p.sport] = (bySport[p.sport] ?? 0) + 1;
-  }
-  const sportSummary = Object.entries(bySport)
-    .sort((a, b) => b[1] - a[1])
-    .map(([s, n]) => `${s}: ${n}`)
-    .join(" | ");
-
-  const topPicks = [...picks]
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 10);
-
-  const pickLines = topPicks
-    .map(
-      (p) =>
-        `  • ${p.playerName} — ${p.direction} ${p.line} ${p.propType} | ${p.sport} | ${p.confidence}% conf | ${p.riskTier} | ${p.team}`,
-    )
-    .join("\n");
-
-  const refreshed = status.lastRefreshedAt
-    ? new Date(status.lastRefreshedAt).toLocaleString("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit",
-        month: "short",
-        day: "numeric",
-      })
-    : "not yet refreshed";
-
-  return `
-
-LIVE GHOSTWATCH DATA (last updated ${refreshed} ET | ${status.source}):
-Total picks: ${picks.length} | Safe: ${byTier.Safe} | Balanced: ${byTier.Balanced} | Aggressive: ${byTier.Aggressive}
-Sports coverage: ${sportSummary}
-
-Top 10 picks by confidence:
-${pickLines}
-
-Full pick list available if user asks for all picks. Use the above data to answer questions about today's slate, build ticket constructions, and analyze specific props.`;
-}
 
 // ─── List conversations (scoped to authenticated user) ────────────────────────
 
@@ -271,22 +216,36 @@ router.post("/openai/conversations/:id/messages", async (req, res): Promise<void
 
   const userContent = parsed.data.content;
 
-  // Save user message
+  // Save user message first — history and settings can then load in parallel
   await db.insert(messages).values({
     conversationId: convId,
     role: "user",
     content: userContent,
   });
 
-  // Load history for context
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, convId))
-    .orderBy(messages.createdAt);
+  const [history, settingsRows] = await Promise.all([
+    db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, convId))
+      .orderBy(messages.createdAt),
+    db
+      .select({
+        riskProfile: userSettingsTable.riskProfile,
+        picksPerTicket: userSettingsTable.picksPerTicket,
+      })
+      .from(userSettingsTable)
+      .where(eq(userSettingsTable.userId, userId))
+      .limit(1),
+  ]);
+
+  const riskProfile = settingsRows[0]?.riskProfile ?? "Balanced";
+  const picksPerTicket = settingsRows[0]?.picksPerTicket
+    ? Math.min(6, Math.max(3, Number(settingsRows[0].picksPerTicket)))
+    : 3;
 
   const chatMessages: ChatMessage[] = [
-    { role: "system", content: GHOSTPHERE_SYSTEM_PROMPT + buildLivePicksContext() },
+    { role: "system", content: GHOSTPHERE_SYSTEM_PROMPT + buildLivePicksContext(getPicks, getCacheStatus, riskProfile, picksPerTicket) },
     ...history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
