@@ -48,9 +48,13 @@ import type {
   OpenaiMessageInput,
   Pick,
   PicksRefreshStatus,
-  RefreshStartedResponse,
   PicksSummary,
   PlayerSocialScore,
+  PortalPicksPreview,
+  PortalStats,
+  PortalSubscribeInput,
+  PortalSubscribeResult,
+  RefreshStartedResponse,
   Signal,
   SocialAlert,
   TeamPulse,
@@ -1473,45 +1477,81 @@ export function useGetGhostwatchStatus<TData = Awaited<ReturnType<typeof getGhos
 }
 
 
-/**
- * @summary Trigger an immediate cache refresh from The Odds API
- */
-export const getPostGhostwatchRefreshUrl = () => `/api/ghostwatch/refresh`;
 
-export const triggerRefresh = async (options?: Parameters<typeof customFetch>[1]): Promise<RefreshStartedResponse> => {
-  return customFetch<RefreshStartedResponse>(getPostGhostwatchRefreshUrl(), {
-    ...options,
-    method: 'POST',
-  });
-};
 
-export const getTriggerRefreshMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
-  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext>, request?: SecondParameter<typeof customFetch> }
-): UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext> => {
-  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
-  const mutationKey = ['triggerRefresh'];
-  const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerRefresh>>, void> = () => {
-    return triggerRefresh(requestOptions);
-  };
-  return { mutationKey, mutationFn, ...mutationOptions };
-};
 
-export type TriggerRefreshMutationResult = NonNullable<Awaited<ReturnType<typeof triggerRefresh>>>;
-export type TriggerRefreshMutationError = ErrorType<unknown>;
 
-/**
- * @summary Trigger an immediate cache refresh from The Odds API
- */
-export function useTriggerRefresh<TError = ErrorType<unknown>, TContext = unknown>(
-  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext>, request?: SecondParameter<typeof customFetch> }
-): UseMutationResult<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext> {
-  const mutationOptions = getTriggerRefreshMutationOptions(options);
-  return useMutation(mutationOptions);
+
+export const getTriggerRefreshUrl = () => {
+
+
+
+
+  return `/api/ghostwatch/refresh`
 }
 
+/**
+ * @summary Trigger an immediate cache refresh from The Odds API
+ */
+export const triggerRefresh = async ( options?: Parameters<typeof customFetch>[1]): Promise<RefreshStartedResponse> => {
+
+  return customFetch<RefreshStartedResponse>(getTriggerRefreshUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
 
 
 
+
+
+export const getTriggerRefreshMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError,void, TContext> => {
+
+const mutationKey = ['triggerRefresh'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerRefresh>>, void> = () => {
+
+
+          return  triggerRefresh(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TriggerRefreshMutationResult = NonNullable<Awaited<ReturnType<typeof triggerRefresh>>>
+
+    export type TriggerRefreshMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Trigger an immediate cache refresh from The Odds API
+ */
+export const useTriggerRefresh = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof triggerRefresh>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTriggerRefreshMutationOptions(options));
+    }
 
 export const getListLivePicksUrl = (params?: ListLivePicksParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -2139,6 +2179,231 @@ export function useListTeamPulse<TData = Awaited<ReturnType<typeof listTeamPulse
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListTeamPulseQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPortalSubscribeUrl = () => {
+
+
+
+
+  return `/api/portal/subscribe`
+}
+
+/**
+ * @summary Subscribe a guest email to Ghostwatch updates
+ */
+export const portalSubscribe = async (portalSubscribeInput: PortalSubscribeInput, options?: Parameters<typeof customFetch>[1]): Promise<PortalSubscribeResult> => {
+
+  return customFetch<PortalSubscribeResult>(getPortalSubscribeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(portalSubscribeInput)
+  }
+);}
+
+
+
+
+
+export const getPortalSubscribeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof portalSubscribe>>, TError,{data: BodyType<PortalSubscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof portalSubscribe>>, TError,{data: BodyType<PortalSubscribeInput>}, TContext> => {
+
+const mutationKey = ['portalSubscribe'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof portalSubscribe>>, {data: BodyType<PortalSubscribeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  portalSubscribe(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PortalSubscribeMutationResult = NonNullable<Awaited<ReturnType<typeof portalSubscribe>>>
+    export type PortalSubscribeMutationBody = BodyType<PortalSubscribeInput>
+    export type PortalSubscribeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Subscribe a guest email to Ghostwatch updates
+ */
+export const usePortalSubscribe = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof portalSubscribe>>, TError,{data: BodyType<PortalSubscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof portalSubscribe>>,
+        TError,
+        {data: BodyType<PortalSubscribeInput>},
+        TContext
+      > => {
+      return useMutation(getPortalSubscribeMutationOptions(options));
+    }
+
+export const getGetPortalPicksPreviewUrl = () => {
+
+
+
+
+  return `/api/portal/picks/preview`
+}
+
+/**
+ * @summary Public preview of top picks (limited, no auth required)
+ */
+export const getPortalPicksPreview = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortalPicksPreview> => {
+
+  return customFetch<PortalPicksPreview>(getGetPortalPicksPreviewUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPortalPicksPreviewQueryKey = () => {
+    return [
+    `/api/portal/picks/preview`
+    ] as const;
+    }
+
+
+export const getGetPortalPicksPreviewQueryOptions = <TData = Awaited<ReturnType<typeof getPortalPicksPreview>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalPicksPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPortalPicksPreviewQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPortalPicksPreview>>> = ({ signal }) => getPortalPicksPreview({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPortalPicksPreview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPortalPicksPreviewQueryResult = NonNullable<Awaited<ReturnType<typeof getPortalPicksPreview>>>
+export type GetPortalPicksPreviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Public preview of top picks (limited, no auth required)
+ */
+
+export function useGetPortalPicksPreview<TData = Awaited<ReturnType<typeof getPortalPicksPreview>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalPicksPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPortalPicksPreviewQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPortalStatsUrl = () => {
+
+
+
+
+  return `/api/portal/stats`
+}
+
+/**
+ * @summary Public social-proof stats (total picks today, sports covered, subscribers)
+ */
+export const getPortalStats = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortalStats> => {
+
+  return customFetch<PortalStats>(getGetPortalStatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPortalStatsQueryKey = () => {
+    return [
+    `/api/portal/stats`
+    ] as const;
+    }
+
+
+export const getGetPortalStatsQueryOptions = <TData = Awaited<ReturnType<typeof getPortalStats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPortalStatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPortalStats>>> = ({ signal }) => getPortalStats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPortalStats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPortalStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getPortalStats>>>
+export type GetPortalStatsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Public social-proof stats (total picks today, sports covered, subscribers)
+ */
+
+export function useGetPortalStats<TData = Awaited<ReturnType<typeof getPortalStats>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPortalStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPortalStatsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

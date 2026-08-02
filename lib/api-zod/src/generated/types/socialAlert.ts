@@ -17,5 +17,6 @@ export interface SocialAlert {
   description: string;
   severity: SocialAlertSeverity;
   source?: string;
+  sourceUrl?: string;
   createdAt: string;
 }

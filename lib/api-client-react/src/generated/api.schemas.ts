@@ -5,29 +5,76 @@
  * Ghostwatch API — AI-powered sports betting assistant
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * "ok" when live data is fresh; "degraded" when stale or no API key
+ */
+export type HealthStatusStatus = typeof HealthStatusStatus[keyof typeof HealthStatusStatus];
+
+
+export const HealthStatusStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+} as const;
+
+/**
+ * "ok" fresh live data; "stale" real data overdue for refresh; "no_api_key" running in demo mode
+ */
+export type HealthStatusDataFreshness = typeof HealthStatusDataFreshness[keyof typeof HealthStatusDataFreshness];
+
+
+export const HealthStatusDataFreshness = {
+  ok: 'ok',
+  stale: 'stale',
+  no_api_key: 'no_api_key',
+} as const;
+
+/**
+ * "live" fetched this session; "snapshot" restored from disk; "mock" no API key
+ */
+export type HealthStatusSource = typeof HealthStatusSource[keyof typeof HealthStatusSource];
+
+
+export const HealthStatusSource = {
+  live: 'live',
+  snapshot: 'snapshot',
+  mock: 'mock',
+} as const;
+
 export interface HealthStatus {
   /** "ok" when live data is fresh; "degraded" when stale or no API key */
-  status: 'ok' | 'degraded';
+  status: HealthStatusStatus;
   /** "ok" fresh live data; "stale" real data overdue for refresh; "no_api_key" running in demo mode */
-  dataFreshness?: 'ok' | 'stale' | 'no_api_key';
+  dataFreshness?: HealthStatusDataFreshness;
   /** True when picks are older than PICKS_STALENESS_MINUTES or no API key is configured */
   isStale?: boolean;
   /**
-   * ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed
-   * @nullable
-   */
+     * ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed
+     * @nullable
+     */
   lastRefreshedAt?: string | null;
   /** Number of back-to-back refresh failures; resets to 0 on success */
   consecutiveFailures?: number;
   /** "live" fetched this session; "snapshot" restored from disk; "mock" no API key */
-  source?: 'live' | 'snapshot' | 'mock';
+  source?: HealthStatusSource;
 }
+
+/**
+ * "live" fetched this session; "snapshot" restored from disk on startup; "mock" no API key
+ */
+export type PicksRefreshStatusSource = typeof PicksRefreshStatusSource[keyof typeof PicksRefreshStatusSource];
+
+
+export const PicksRefreshStatusSource = {
+  live: 'live',
+  snapshot: 'snapshot',
+  mock: 'mock',
+} as const;
 
 export interface PicksRefreshStatus {
   /** True when picks were generated from a live API, false when serving mock data */
   usingRealData: boolean;
   /** "live" fetched this session; "snapshot" restored from disk on startup; "mock" no API key */
-  source?: 'live' | 'snapshot' | 'mock';
+  source?: PicksRefreshStatusSource;
   /**
      * ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
      * @nullable
@@ -38,9 +85,9 @@ export interface PicksRefreshStatus {
   /** Number of consecutive refresh failures (resets to 0 on success) */
   consecutiveFailures?: number;
   /**
-   * Error message from the most recent failed refresh attempt
-   * @nullable
-   */
+     * Error message from the most recent failed refresh attempt
+     * @nullable
+     */
   lastError?: string | null;
 }
 
@@ -355,6 +402,7 @@ export interface SocialAlert {
   description: string;
   severity: SocialAlertSeverity;
   source?: string;
+  sourceUrl?: string;
   createdAt: string;
 }
 
@@ -432,6 +480,59 @@ export interface UserSettingsInput {
   riskProfile?: UserSettingsInputRiskProfile;
   picksPerTicket?: number;
   emailNotifications?: boolean;
+}
+
+export interface PortalSubscribeInput {
+  email: string;
+  /** @nullable */
+  name?: string | null;
+}
+
+export interface PortalSubscribeResult {
+  success: boolean;
+  message: string;
+}
+
+export type PortalPickPreviewDirection = typeof PortalPickPreviewDirection[keyof typeof PortalPickPreviewDirection];
+
+
+export const PortalPickPreviewDirection = {
+  Over: 'Over',
+  Under: 'Under',
+} as const;
+
+export type PortalPickPreviewRiskTier = typeof PortalPickPreviewRiskTier[keyof typeof PortalPickPreviewRiskTier];
+
+
+export const PortalPickPreviewRiskTier = {
+  Safe: 'Safe',
+  Balanced: 'Balanced',
+  Aggressive: 'Aggressive',
+} as const;
+
+export interface PortalPickPreview {
+  id: string;
+  playerName: string;
+  sport: string;
+  propType: string;
+  line: number;
+  direction: PortalPickPreviewDirection;
+  confidence: number;
+  riskTier: PortalPickPreviewRiskTier;
+  isLocked?: boolean;
+}
+
+export interface PortalPicksPreview {
+  picks: PortalPickPreview[];
+  totalAvailable: number;
+  lockedCount: number;
+}
+
+export interface PortalStats {
+  picksToday: number;
+  sportsLive: number;
+  subscribers: number;
+  avgConfidence: number;
 }
 
 /**

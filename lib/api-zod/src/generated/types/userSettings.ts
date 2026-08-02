@@ -6,14 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UserSettingsRiskProfile } from './userSettingsRiskProfile';
-import type { UserSettingsEntryType } from './userSettingsEntryType';
 
 export interface UserSettings {
   id: string;
   email: string;
   preferredSports: string[];
   riskProfile: UserSettingsRiskProfile;
-  entryType?: UserSettingsEntryType;
   picksPerTicket: number;
   emailNotifications?: boolean;
   createdAt: string;

@@ -13,5 +13,4 @@ export const UserSettingsRiskProfile = {
   Safe: 'Safe',
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
-  Mixed: 'Mixed',
 } as const;
