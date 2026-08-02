@@ -9,6 +9,8 @@ export const userSettingsTable = pgTable("user_settings", {
   email: text("email").notNull().default(""),
   preferredSports: text("preferred_sports").notNull().default("NBA,NFL"),
   riskProfile: text("risk_profile").notNull().default("Balanced"),
+  /** PrizePicks entry format — "PowerPlay" (all must hit) or "FlexPlay" (partial credit allowed). */
+  entryType: text("entry_type").notNull().default("PowerPlay"),
   picksPerTicket: text("picks_per_ticket").notNull().default("3"),
   emailNotifications: boolean("email_notifications").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

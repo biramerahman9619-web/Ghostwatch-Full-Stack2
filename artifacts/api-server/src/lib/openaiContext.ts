@@ -37,7 +37,8 @@ export function buildLivePicksContext(
   if (!picks.length) {
     return (
       `\n\n[GHOSTWATCH DATA: No picks currently loaded — data may be refreshing.]\n\n` +
-      profileLine
+      profileLine +
+      `\n\nPRIZEPICKS RULES: Over/Under player props only. Power Play = all must hit (3=5x, 4=10x, 5=20x, 6=40x). Flex Play = partial credit (3 picks: 2.25x/1.25x, 4: 5x/1.5x, 5: 10x/2x/0.5x, 6: 20x/2x/0.5x).`
     );
   }
 
@@ -88,5 +89,11 @@ ${pickLines}
 
 ${profileLine}
 
-Full pick list available if user asks for all picks. Use the above data to answer questions about today's slate, build ticket constructions, and analyze specific props.`;
+PRIZEPICKS RULES (always follow these when building entries):
+- All picks are Over/Under player props only. No spreads or moneylines.
+- Power Play entries: ALL picks must be correct to win. Multipliers: 2=3x, 3=5x, 4=10x, 5=20x, 6=40x.
+- Flex Play entries: partial credit allowed. 3 picks: 2.25x all / 1.25x (1 miss). 4 picks: 5x all / 1.5x (1 miss). 5 picks: 10x all / 2x (1 miss) / 0.5x (2 miss). 6 picks: 20x all / 2x (1 miss) / 0.5x (2 miss).
+- Minimum 2 picks per entry, maximum 6. Always state the payout multiplier when suggesting an entry.
+
+Full pick list available if user asks for all picks. Use the above data to answer questions about today's slate, build entry constructions, and analyze specific props.`;
 }

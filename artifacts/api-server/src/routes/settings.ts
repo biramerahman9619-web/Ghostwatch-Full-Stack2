@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   email: "",
   preferredSports: ["NBA", "NFL"],
   riskProfile: "Balanced" as const,
+  entryType: "PowerPlay" as const,
   picksPerTicket: 3,
   emailNotifications: true,
   createdAt: new Date().toISOString(),
@@ -24,6 +25,7 @@ function rowToSettings(row: {
   email: string;
   preferredSports: string;
   riskProfile: string;
+  entryType: string;
   picksPerTicket: string;
   emailNotifications: boolean;
   createdAt: Date;
@@ -33,6 +35,7 @@ function rowToSettings(row: {
     email: row.email,
     preferredSports: row.preferredSports.split(",").filter(Boolean),
     riskProfile: row.riskProfile as "Safe" | "Balanced" | "Aggressive" | "Mixed",
+    entryType: (row.entryType ?? "PowerPlay") as "PowerPlay" | "FlexPlay",
     picksPerTicket: Number(row.picksPerTicket),
     emailNotifications: row.emailNotifications,
     createdAt: row.createdAt.toISOString(),
@@ -85,6 +88,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (data.email !== undefined) updates.email = data.email;
   if (data.preferredSports !== undefined) updates.preferredSports = data.preferredSports.join(",");
   if (data.riskProfile !== undefined) updates.riskProfile = data.riskProfile;
+  if (data.entryType !== undefined) updates.entryType = data.entryType;
   if (data.picksPerTicket !== undefined) updates.picksPerTicket = String(data.picksPerTicket);
   if (data.emailNotifications !== undefined) updates.emailNotifications = data.emailNotifications;
 
@@ -96,6 +100,7 @@ router.put("/settings", async (req, res): Promise<void> => {
         email: (data.email as string) ?? "",
         preferredSports: data.preferredSports?.join(",") ?? "NBA,NFL",
         riskProfile: (data.riskProfile as string) ?? "Balanced",
+        entryType: (data.entryType as string) ?? "PowerPlay",
         picksPerTicket: String(data.picksPerTicket ?? 3),
         emailNotifications: data.emailNotifications ?? true,
       })

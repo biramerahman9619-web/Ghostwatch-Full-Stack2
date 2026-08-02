@@ -89,9 +89,10 @@ router.get("/ghostspere/tickets", async (req, res): Promise<void> => {
     return;
   }
 
-  // Read the user's picksPerTicket + riskProfile settings (auth-aware, mirrors settings route).
+  // Read the user's picksPerTicket + riskProfile + entryType settings (auth-aware).
   let picksPerTicket = 3;
   let riskProfile: "Safe" | "Balanced" | "Aggressive" | "Mixed" = "Balanced";
+  let entryType: "PowerPlay" | "FlexPlay" = "PowerPlay";
   const userId = req.isAuthenticated() ? req.user.id : null;
   const settingsFilter = userId
     ? eq(userSettingsTable.userId, userId)
@@ -100,22 +101,27 @@ router.get("/ghostspere/tickets", async (req, res): Promise<void> => {
     .select({
       picksPerTicket: userSettingsTable.picksPerTicket,
       riskProfile: userSettingsTable.riskProfile,
+      entryType: userSettingsTable.entryType,
     })
     .from(userSettingsTable)
     .where(settingsFilter)
     .limit(1);
   if (settingsRows[0]) {
     if (settingsRows[0].picksPerTicket) {
-      picksPerTicket = Math.min(6, Math.max(3, Number(settingsRows[0].picksPerTicket)));
+      // PrizePicks allows 2–6 picks per entry
+      picksPerTicket = Math.min(6, Math.max(2, Number(settingsRows[0].picksPerTicket)));
     }
     if (settingsRows[0].riskProfile) {
       riskProfile = settingsRows[0].riskProfile as typeof riskProfile;
     }
+    if (settingsRows[0].entryType) {
+      entryType = settingsRows[0].entryType as typeof entryType;
+    }
   }
 
-  // Generate tickets on-the-fly using the user's profile settings.
+  // Generate entries on-the-fly using the user's PrizePicks settings.
   const picks = getPicks();
-  const tickets = buildTicketsFromPicks(picks, picksPerTicket, riskProfile);
+  const tickets = buildTicketsFromPicks(picks, picksPerTicket, riskProfile, entryType);
 
   res.json(ListTicketsResponse.parse(tickets));
 });
@@ -166,21 +172,23 @@ router.post("/ghostspere/send-email", async (req, res): Promise<void> => {
     .select({
       picksPerTicket: userSettingsTable.picksPerTicket,
       riskProfile: userSettingsTable.riskProfile,
+      entryType: userSettingsTable.entryType,
     })
     .from(userSettingsTable)
     .where(eq(userSettingsTable.userId, userId))
     .limit(1);
 
   const emailPicksPerTicket = userRows[0]?.picksPerTicket
-    ? Math.min(6, Math.max(3, Number(userRows[0].picksPerTicket)))
+    ? Math.min(6, Math.max(2, Number(userRows[0].picksPerTicket)))
     : 3;
   const emailRiskProfile = (userRows[0]?.riskProfile ?? "Balanced") as
     | "Safe"
     | "Balanced"
     | "Aggressive"
     | "Mixed";
+  const emailEntryType = (userRows[0]?.entryType ?? "PowerPlay") as "PowerPlay" | "FlexPlay";
 
-  const allTickets = buildTicketsFromPicks(getPicks(), emailPicksPerTicket, emailRiskProfile);
+  const allTickets = buildTicketsFromPicks(getPicks(), emailPicksPerTicket, emailRiskProfile, emailEntryType);
   const { matched: selectedTickets, skippedCount } = resolveTickets(allTickets, ticketIds);
 
   if (selectedTickets.length === 0) {

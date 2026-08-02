@@ -135,6 +135,40 @@ function propLabel(key: string): string {
   return PROP_LABELS[key] ?? key.replace(/^player_/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// ─── PrizePicks multipliers ───────────────────────────────────────────────────
+
+/** Power Play: ALL picks must be correct.  Multipliers match the PrizePicks schedule. */
+const PP_MULTIPLIERS: Record<number, number> = { 2: 3, 3: 5, 4: 10, 5: 20, 6: 40 };
+
+/** Flex Play: partial credit available on 3+ pick entries. */
+const FP_MULTIPLIERS: Record<number, { main: number; missOne?: number; missTwo?: number }> = {
+  2: { main: 3 },
+  3: { main: 2.25, missOne: 1.25 },
+  4: { main: 5,    missOne: 1.5 },
+  5: { main: 10,   missOne: 2,  missTwo: 0.5 },
+  6: { main: 20,   missOne: 2,  missTwo: 0.5 },
+};
+
+export function prizePicksMultiplier(
+  picks: number,
+  entryType: "PowerPlay" | "FlexPlay",
+): number {
+  const n = Math.min(6, Math.max(2, picks));
+  if (entryType === "PowerPlay") return PP_MULTIPLIERS[n] ?? 5;
+  return FP_MULTIPLIERS[n]?.main ?? 2.25;
+}
+
+/** Human-readable payout breakdown for Flex Play entries. */
+export function flexBreakdownLabel(picks: number): string {
+  const n = Math.min(6, Math.max(2, picks));
+  const fp = FP_MULTIPLIERS[n];
+  if (!fp) return "";
+  const parts: string[] = [`${fp.main}x all correct`];
+  if (fp.missOne !== undefined) parts.push(`${fp.missOne}x (1 miss)`);
+  if (fp.missTwo !== undefined) parts.push(`${fp.missTwo}x (2 miss)`);
+  return parts.join(" · ");
+}
+
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
 /** Convert American odds to implied probability (0–1). */
@@ -792,17 +826,23 @@ export function buildTicketsFromPicks(
   picks: GeneratedPick[],
   picksPerTicket: number = 3,
   mode: "Safe" | "Balanced" | "Aggressive" | "Mixed" = "Balanced",
+  entryType: "PowerPlay" | "FlexPlay" = "PowerPlay",
 ) {
-  // Clamp to valid range (3–6)
-  const size = Math.min(6, Math.max(3, Math.round(picksPerTicket)));
+  // PrizePicks allows 2–6 picks per entry
+  const size = Math.min(6, Math.max(2, Math.round(picksPerTicket)));
+
   const tickets: Array<{
     id: string;
     riskTier: string;
+    entryType: "PowerPlay" | "FlexPlay";
+    payoutMultiplier: number;
     picks: GeneratedPick[];
     combinedConfidence: number;
     sport: string;
     createdAt: string;
   }> = [];
+
+  const multiplier = prizePicksMultiplier(size, entryType);
 
   if (mode === "Mixed") {
     // Interleave picks from all three tiers (round-robin by tier, sorted by confidence within each)
@@ -828,8 +868,8 @@ export function buildTicketsFromPicks(
 
     for (let i = 0; i < interleaved.length; i += size) {
       const chunk = interleaved.slice(i, i + size);
-      // Require a full ticket (or at least half for the last one)
-      if (chunk.length < Math.max(3, Math.ceil(size / 2))) continue;
+      // PrizePicks minimum is 2 picks per entry
+      if (chunk.length < 2) continue;
 
       const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
       const sports = [...new Set(chunk.map((p) => p.sport))];
@@ -837,6 +877,8 @@ export function buildTicketsFromPicks(
       tickets.push({
         id: ticketId("mixed", chunk),
         riskTier: "Mixed",
+        entryType,
+        payoutMultiplier: prizePicksMultiplier(chunk.length, entryType),
         picks: chunk,
         combinedConfidence: Math.round(avgConf * 10) / 10,
         sport: sports.length === 1 ? sports[0]! : "Mixed",
@@ -851,7 +893,8 @@ export function buildTicketsFromPicks(
 
     for (let i = 0; i < tierPicks.length; i += size) {
       const chunk = tierPicks.slice(i, i + size);
-      if (chunk.length < Math.max(3, Math.ceil(size / 2))) continue;
+      // PrizePicks minimum is 2 picks per entry
+      if (chunk.length < 2) continue;
 
       const avgConf = chunk.reduce((s, p) => s + p.confidence, 0) / chunk.length;
       const sports = [...new Set(chunk.map((p) => p.sport))];
@@ -859,6 +902,8 @@ export function buildTicketsFromPicks(
       tickets.push({
         id: ticketId(mode, chunk),
         riskTier: mode,
+        entryType,
+        payoutMultiplier: prizePicksMultiplier(chunk.length, entryType),
         picks: chunk,
         combinedConfidence: Math.round(avgConf * 10) / 10,
         sport: sports.length === 1 ? sports[0]! : "Mixed",
@@ -866,6 +911,10 @@ export function buildTicketsFromPicks(
       });
     }
   }
+
+  // Attach unused multiplier variable to silence linter — it's computed above for
+  // the full-size case but per-chunk multipliers handle variable last-chunk sizes.
+  void multiplier;
 
   return tickets;
 }

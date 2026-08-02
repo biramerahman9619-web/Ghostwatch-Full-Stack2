@@ -7,10 +7,13 @@
  */
 import type { Pick } from './pick';
 import type { TicketRiskTier } from './ticketRiskTier';
+import type { UserSettingsEntryType } from './userSettingsEntryType';
 
 export interface Ticket {
   id: string;
   riskTier: TicketRiskTier;
+  entryType: UserSettingsEntryType;
+  payoutMultiplier: number;
   picks: Pick[];
   combinedConfidence: number;
   sport: string;

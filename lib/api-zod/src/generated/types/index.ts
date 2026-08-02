@@ -61,6 +61,7 @@ export * from './teamPulseTravelFatigue';
 export * from './ticket';
 export * from './ticketRiskTier';
 export * from './userSettings';
+export * from './userSettingsEntryType';
 export * from './userSettingsInput';
 export * from './userSettingsInputRiskProfile';
 export * from './userSettingsRiskProfile';
