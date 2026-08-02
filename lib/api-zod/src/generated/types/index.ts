@@ -6,6 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './agentChatInput';
+export * from './agentConfig';
+export * from './agentConfigInput';
+export * from './agentLogEntry';
+export * from './agentLogEntryAction';
+export * from './agentStatus';
+export * from './agentTicketEvaluations';
 export * from './authorizationSessionHeaderParameter';
 export * from './authUser';
 export * from './authUserEnvelope';
@@ -75,8 +82,10 @@ export * from './teamPulse';
 export * from './teamPulseDramaLevel';
 export * from './teamPulseTravelFatigue';
 export * from './ticket';
+export * from './ticketEvaluation';
 export * from './ticketRiskTier';
 export * from './userSettings';
+export * from './userSettingsEntryType';
 export * from './userSettingsInput';
 export * from './userSettingsInputEntryType';
 export * from './userSettingsInputRiskProfile';

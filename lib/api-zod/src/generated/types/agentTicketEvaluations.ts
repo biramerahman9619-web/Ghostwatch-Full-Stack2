@@ -5,10 +5,8 @@
  * Ghostwatch API — AI-powered sports betting assistant
  * OpenAPI spec version: 0.1.0
  */
+import type { TicketEvaluation } from './ticketEvaluation';
 
-export interface EmailResult {
-  success: boolean;
-  message: string;
-  dispatched?: number;
-  skipped?: number;
+export interface AgentTicketEvaluations {
+  evaluations: TicketEvaluation[];
 }

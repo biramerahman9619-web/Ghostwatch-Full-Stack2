@@ -417,8 +417,105 @@ export const SendTicketEmailBody = zod.object({
 
 export const SendTicketEmailResponse = zod.object({
   "success": zod.boolean(),
+  "message": zod.string(),
+  "dispatched": zod.number().optional(),
+  "skipped": zod.number().optional()
+})
+
+
+/**
+ * @summary Get the autonomous agent configuration for the authenticated user
+ */
+export const GetAgentConfigResponse = zod.object({
+  "userId": zod.string(),
+  "enabled": zod.boolean(),
+  "scheduleHour": zod.number().describe('UTC hour (0-23) when the daily dispatch fires'),
+  "confidenceThreshold": zod.number().describe('Minimum AI confidence (0-100) required to auto-dispatch'),
+  "signalWatchEnabled": zod.boolean(),
+  "maxPerDay": zod.number(),
+  "lastDispatchedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update the agent configuration
+ */
+export const UpdateAgentConfigBody = zod.object({
+  "enabled": zod.boolean().optional(),
+  "scheduleHour": zod.number().optional(),
+  "confidenceThreshold": zod.number().optional(),
+  "signalWatchEnabled": zod.boolean().optional(),
+  "maxPerDay": zod.number().optional()
+})
+
+export const UpdateAgentConfigResponse = zod.object({
+  "userId": zod.string(),
+  "enabled": zod.boolean(),
+  "scheduleHour": zod.number().describe('UTC hour (0-23) when the daily dispatch fires'),
+  "confidenceThreshold": zod.number().describe('Minimum AI confidence (0-100) required to auto-dispatch'),
+  "signalWatchEnabled": zod.boolean(),
+  "maxPerDay": zod.number(),
+  "lastDispatchedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Get agent armed status, next run time, and last action
+ */
+export const GetAgentStatusResponse = zod.object({
+  "armed": zod.boolean(),
+  "signalWatchActive": zod.boolean(),
+  "nextRunAt": zod.string().nullish(),
+  "lastAction": zod.union([zod.object({
+  "id": zod.number(),
+  "action": zod.enum(['scheduled_dispatch', 'signal_dispatch', 'chat_dispatch', 'skipped', 'evaluation']),
+  "reason": zod.string(),
+  "ticketIds": zod.array(zod.string()).nullish(),
+  "aiReasoning": zod.string().nullish(),
+  "dispatchCount": zod.number(),
+  "createdAt": zod.string()
+}),zod.null()]).optional()
+})
+
+
+/**
+ * @summary Get the 50 most recent agent decisions
+ */
+export const ListAgentLogResponseItem = zod.object({
+  "id": zod.number(),
+  "action": zod.enum(['scheduled_dispatch', 'signal_dispatch', 'chat_dispatch', 'skipped', 'evaluation']),
+  "reason": zod.string(),
+  "ticketIds": zod.array(zod.string()).nullish(),
+  "aiReasoning": zod.string().nullish(),
+  "dispatchCount": zod.number(),
+  "createdAt": zod.string()
+})
+export const ListAgentLogResponse = zod.array(ListAgentLogResponseItem)
+
+
+/**
+ * @summary Use AI to score and reason about the current user's tickets
+ */
+export const EvaluateAgentTicketsResponse = zod.object({
+  "evaluations": zod.array(zod.object({
+  "ticketId": zod.string(),
+  "aiConfidence": zod.number(),
+  "reasoning": zod.string(),
+  "agentWouldSelect": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Send a command to the agent — streams an SSE reply and executes the action
+ */
+export const SendAgentChatBody = zod.object({
   "message": zod.string()
 })
+
+export const SendAgentChatResponse = zod.unknown()
 
 
 /**
@@ -548,7 +645,8 @@ export const GetSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()
@@ -571,7 +669,8 @@ export const UpdateSettingsResponse = zod.object({
   "id": zod.string(),
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
-  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()

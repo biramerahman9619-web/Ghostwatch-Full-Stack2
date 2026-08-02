@@ -370,6 +370,75 @@ export interface EmailRequest {
 export interface EmailResult {
   success: boolean;
   message: string;
+  dispatched?: number;
+  skipped?: number;
+}
+
+export interface AgentConfig {
+  userId: string;
+  enabled: boolean;
+  /** UTC hour (0-23) when the daily dispatch fires */
+  scheduleHour: number;
+  /** Minimum AI confidence (0-100) required to auto-dispatch */
+  confidenceThreshold: number;
+  signalWatchEnabled: boolean;
+  maxPerDay: number;
+  /** @nullable */
+  lastDispatchedAt?: string | null;
+  createdAt: string;
+}
+
+export interface AgentConfigInput {
+  enabled?: boolean;
+  scheduleHour?: number;
+  confidenceThreshold?: number;
+  signalWatchEnabled?: boolean;
+  maxPerDay?: number;
+}
+
+export type AgentLogEntryAction = typeof AgentLogEntryAction[keyof typeof AgentLogEntryAction];
+
+
+export const AgentLogEntryAction = {
+  scheduled_dispatch: 'scheduled_dispatch',
+  signal_dispatch: 'signal_dispatch',
+  chat_dispatch: 'chat_dispatch',
+  skipped: 'skipped',
+  evaluation: 'evaluation',
+} as const;
+
+export interface AgentLogEntry {
+  id: number;
+  action: AgentLogEntryAction;
+  reason: string;
+  ticketIds?: string[] | null;
+  /** @nullable */
+  aiReasoning?: string | null;
+  dispatchCount: number;
+  createdAt: string;
+}
+
+export interface AgentStatus {
+  armed: boolean;
+  signalWatchActive: boolean;
+  /** @nullable */
+  nextRunAt?: string | null;
+  lastAction?: AgentLogEntry | null;
+}
+
+export interface TicketEvaluation {
+  ticketId: string;
+  aiConfidence: number;
+  reasoning: string;
+  agentWouldSelect: boolean;
+}
+
+export interface AgentTicketEvaluations {
+  evaluations: TicketEvaluation[];
+}
+
+export interface AgentChatInput {
+  message: string;
 }
 
 export type SocialAlertAlertType = typeof SocialAlertAlertType[keyof typeof SocialAlertAlertType];
@@ -453,6 +522,15 @@ export const UserSettingsRiskProfile = {
   Safe: 'Safe',
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
+  Mixed: 'Mixed',
+} as const;
+
+export type UserSettingsEntryType = typeof UserSettingsEntryType[keyof typeof UserSettingsEntryType];
+
+
+export const UserSettingsEntryType = {
+  PowerPlay: 'PowerPlay',
+  FlexPlay: 'FlexPlay',
 } as const;
 
 export interface UserSettings {
@@ -460,6 +538,7 @@ export interface UserSettings {
   email: string;
   preferredSports: string[];
   riskProfile: UserSettingsRiskProfile;
+  entryType?: UserSettingsEntryType;
   picksPerTicket: number;
   emailNotifications?: boolean;
   createdAt: string;

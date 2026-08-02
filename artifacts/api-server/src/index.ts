@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startAutoRefresh } from "./lib/sportsCache";
 import { startObservationRefresh } from "./lib/observationCache";
+import { startAgentLoop } from "./lib/ghostspereAgent";
 
 const rawPort = process.env["PORT"];
 
@@ -30,4 +31,7 @@ app.listen(port, (err) => {
 
   // Start observation refresh shortly after server starts (ESPN data; no sports-cache dependency)
   startObservationRefresh(5_000);
+
+  // Start the Ghostspere autonomous agent loop (60-second tick)
+  startAgentLoop();
 });
