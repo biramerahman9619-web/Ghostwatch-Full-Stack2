@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAutoRefresh } from "./lib/sportsCache";
+import { startObservationRefresh } from "./lib/observationCache";
 
 const rawPort = process.env["PORT"];
 
@@ -26,4 +27,7 @@ app.listen(port, (err) => {
 
   // Kick off real-time sports data pipeline (no-ops if API key not set)
   startAutoRefresh();
+
+  // Start observation refresh shortly after server starts (ESPN data; no sports-cache dependency)
+  startObservationRefresh(5_000);
 });

@@ -9,6 +9,16 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface PicksRefreshStatus {
+  /** True when picks were generated from a live API, false when serving mock data */
+  usingRealData: boolean;
+  /**
+     * ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
+     * @nullable
+     */
+  lastRefreshedAt?: string | null;
+}
+
 export interface AuthUser {
   id: string;
   /** @nullable */

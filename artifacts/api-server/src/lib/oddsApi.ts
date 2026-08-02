@@ -9,6 +9,13 @@
 
 const BASE_URL = "https://api.the-odds-api.com/v4";
 
+export const SPORT_KEYS: Record<string, string> = {
+  NBA: "basketball_nba",
+  WNBA: "basketball_wnba",
+  NFL: "americanfootball_nfl",
+  MLB: "baseball_mlb",
+  NHL: "icehockey_nhl",
+};
 export const BOOKMAKERS_US = "draftkings,fanduel,betmgm,bovada,pointsbet,betrivers,caesars,unibet_us";
 
 // ─── Sport definitions ────────────────────────────────────────────────────────
@@ -414,4 +421,164 @@ export async function fetchAllEventProps(
   }
 
   return [...bookmakerMap.values()];
+}
+
+function apiKey(): string | undefined {
+  return process.env["THE_ODDS_API_KEY"] ?? process.env["ODDS_API_KEY"];
+}
+
+/**
+ * Fetch today's scheduled/live events for a sport.
+ * Returns null when API key is missing or request fails.
+ */
+export async function fetchEvents(sport: string): Promise<OddsEvent[] | null> {
+  const sportKey = SPORT_KEYS[sport];
+  if (!sportKey) return null;
+
+  return oddsGet<OddsEvent[]>(`/sports/${sportKey}/odds`, {
+    regions: "us",
+    markets: "h2h",
+    oddsFormat: "american",
+    dateFormat: "iso",
+  });
+}
+
+export const PROP_MARKETS: Record<string, string[]> = {
+  NBA: [
+    "player_points",
+    "player_rebounds",
+    "player_assists",
+    "player_threes",
+    "player_blocks",
+    "player_steals",
+    "player_points_rebounds_assists",
+    "player_points_rebounds",
+    "player_points_assists",
+  ],
+  WNBA: ["player_points", "player_rebounds", "player_assists"],
+  NFL: [
+    "player_pass_yds",
+    "player_rush_yds",
+    "player_reception_yds",
+    "player_pass_tds",
+    "player_receptions",
+  ],
+  MLB: ["batter_total_bases", "batter_hits", "batter_rbis", "pitcher_strikeouts"],
+  NHL: ["player_points", "player_goals", "player_assists"],
+};
+
+/**
+ * Fetch live + recent scores for a sport.
+ */
+export async function fetchScores(sport: string): Promise<ScoreEvent[] | null> {
+  const sportKey = SPORT_KEYS[sport];
+  if (!sportKey) return null;
+
+  return oddsGet<ScoreEvent[]>(`/sports/${sportKey}/scores`, {
+    daysFrom: "1",
+  });
+}
+
+export interface OddsEvent {
+  id: string;
+  sport_key: string;
+  sport_title: string;
+  commence_time: string; // ISO 8601
+  home_team: string;
+  away_team: string;
+  bookmakers?: OddsBookmaker[];
+}
+
+/**
+ * Returns true if the Odds API key is configured.
+ */
+export function isOddsApiEnabled(): boolean {
+  return Boolean(apiKey());
+}
+
+/**
+ * Fetch player prop lines for a specific event.
+ * Returns markets array or null.
+ */
+export async function fetchPlayerProps(
+  sport: string,
+  eventId: string,
+): Promise<OddsEvent | null> {
+  const sportKey = SPORT_KEYS[sport];
+  if (!sportKey) return null;
+
+  const markets = (PROP_MARKETS[sport] ?? []).join(",");
+  if (!markets) return null;
+
+  return oddsGet<OddsEvent>(`/sports/${sportKey}/events/${eventId}/odds`, {
+    regions: "us",
+    markets,
+    oddsFormat: "american",
+  });
+}
+
+export interface OddsBookmaker {
+  key: string;
+  title: string;
+  last_update: string;
+  markets: OddsMarket[];
+}
+
+export interface OddsOutcome {
+  name: string;       // team name, "Over", "Under", or player name
+  price: number;      // American odds (e.g. -110, +130)
+  point?: number;     // spread / total / player prop line
+  description?: string; // player name for prop markets
+}
+
+export interface OddsMarket {
+  key: string;
+  last_update: string;
+  outcomes: OddsOutcome[];
+}
+
+async function oddsGet<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
+  const key = apiKey();
+  if (!key) return null;
+
+  const url = new URL(`${BASE_URL}${path}`);
+  url.searchParams.set("apiKey", key);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      // Log remaining quota for debugging
+      const remaining = res.headers.get("x-requests-remaining");
+      if (remaining !== null) process.env["_ODDS_QUOTA_REMAINING"] = remaining;
+      throw new Error(`Odds API ${res.status}: ${await res.text()}`);
+    }
+
+    const remaining = res.headers.get("x-requests-remaining");
+    if (remaining !== null) process.env["_ODDS_QUOTA_REMAINING"] = remaining;
+
+    return (await res.json()) as T;
+  } catch (err) {
+    // Swallow errors so callers fall back to mock data
+    console.error("[OddsAPI] request failed:", (err as Error).message);
+    return null;
+  }
+}
+
+export interface ScoreEvent {
+  id: string;
+  sport_key: string;
+  sport_title: string;
+  commence_time: string;
+  completed: boolean;
+  home_team: string;
+  away_team: string;
+  scores: Array<{ name: string; score: string }> | null;
+  last_update: string | null;
 }

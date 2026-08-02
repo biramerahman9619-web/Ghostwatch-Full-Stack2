@@ -1,5 +1,5 @@
-import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { and, eq } from "drizzle-orm";
 import { db, conversations, messages } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
@@ -14,9 +14,26 @@ import {
   SendOpenaiMessageParams,
   SendOpenaiMessageBody,
 } from "@workspace/api-zod";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+
+// Local type — avoids importing openai directly from api-server
+// (openai package is a dep of @workspace/integrations-openai-ai-server, not api-server)
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
 
 const router: IRouter = Router();
+
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+/** Returns the authenticated user's ID or sends 401 and returns null. */
+function requireAuth(req: Request, res: Response): string | null {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  return req.user.id;
+}
 
 const GHOSTPHERE_SYSTEM_PROMPT = `You are Ghostphere — an elite AI sports betting intelligence system built into Ghostwatch. You have deep knowledge of:
 - Player prop betting (points, rebounds, assists, fantasy scores, passing yards, etc.)
@@ -29,97 +46,148 @@ Your personality: precise, data-driven, direct. You think like a professional ha
 
 You have access to today's Ghostwatch picks, Ghost Express live signals, Ghostspere ticket recommendations, and Ghostobservation social intel through this conversation. When users ask about specific players, games, or props, analyze them thoroughly. Help users build winning tickets.`;
 
-// List conversations
-router.get("/openai/conversations", async (_req, res): Promise<void> => {
+// ─── List conversations (scoped to authenticated user) ────────────────────────
+
+router.get("/openai/conversations", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const rows = await db
     .select()
     .from(conversations)
+    .where(eq(conversations.userId, userId))
     .orderBy(conversations.createdAt);
-  res.json(ListOpenaiConversationsResponse.parse(rows.map(r => ({
+
+  res.json(ListOpenaiConversationsResponse.parse(rows.map((r) => ({
     ...r,
     createdAt: r.createdAt.toISOString(),
   }))));
 });
 
-// Create conversation
+// ─── Create conversation ──────────────────────────────────────────────────────
+
 router.post("/openai/conversations", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const parsed = CreateOpenaiConversationBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
   const [row] = await db
     .insert(conversations)
-    .values({ title: parsed.data.title })
+    .values({ userId, title: parsed.data.title })
     .returning();
+
   res.status(201).json(CreateOpenaiConversationResponse.parse({
     ...row,
-    createdAt: row.createdAt.toISOString(),
+    createdAt: row!.createdAt.toISOString(),
   }));
 });
 
-// Get conversation with messages
+// ─── Get conversation with messages (ownership-enforced) ─────────────────────
+
 router.get("/openai/conversations/:id", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const params = GetOpenaiConversationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
   const [conv] = await db
     .select()
     .from(conversations)
-    .where(eq(conversations.id, params.data.id));
+    .where(and(eq(conversations.id, params.data.id), eq(conversations.userId, userId)));
+
   if (!conv) {
     res.status(404).json({ error: "Conversation not found" });
     return;
   }
+
   const msgs = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, params.data.id))
     .orderBy(messages.createdAt);
+
   res.json(GetOpenaiConversationResponse.parse({
     ...conv,
     createdAt: conv.createdAt.toISOString(),
-    messages: msgs.map(m => ({
-      ...m,
-      createdAt: m.createdAt.toISOString(),
-    })),
+    messages: msgs.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() })),
   }));
 });
 
-// Delete conversation
+// ─── Delete conversation (ownership-enforced) ─────────────────────────────────
+
 router.delete("/openai/conversations/:id", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const params = DeleteOpenaiConversationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  await db.delete(messages).where(eq(messages.conversationId, params.data.id));
-  await db.delete(conversations).where(eq(conversations.id, params.data.id));
-  res.sendStatus(204);
+
+  const deleted = await db
+    .delete(conversations)
+    .where(and(eq(conversations.id, params.data.id), eq(conversations.userId, userId)))
+    .returning();
+
+  if (!deleted.length) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
+  res.status(204).end();
 });
 
-// List messages
+// ─── List messages (ownership-enforced) ──────────────────────────────────────
+
 router.get("/openai/conversations/:id/messages", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const params = ListOpenaiMessagesParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
+
+  // Verify ownership before listing messages
+  const [conv] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.id, params.data.id), eq(conversations.userId, userId)));
+
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
   const msgs = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, params.data.id))
     .orderBy(messages.createdAt);
-  res.json(ListOpenaiMessagesResponse.parse(msgs.map(m => ({
+
+  res.json(ListOpenaiMessagesResponse.parse(msgs.map((m) => ({
     ...m,
     createdAt: m.createdAt.toISOString(),
   }))));
 });
 
-// Send message — streaming SSE
+// ─── Send message — streaming SSE (ownership-enforced) ────────────────────────
+
 router.post("/openai/conversations/:id/messages", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
   const params = SendOpenaiMessageParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -132,6 +200,18 @@ router.post("/openai/conversations/:id/messages", async (req, res): Promise<void
   }
 
   const convId = params.data.id;
+
+  // Verify ownership before allowing message or model invocation
+  const [conv] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(eq(conversations.id, convId), eq(conversations.userId, userId)));
+
+  if (!conv) {
+    res.status(404).json({ error: "Conversation not found" });
+    return;
+  }
+
   const userContent = parsed.data.content;
 
   // Save user message
@@ -148,9 +228,9 @@ router.post("/openai/conversations/:id/messages", async (req, res): Promise<void
     .where(eq(messages.conversationId, convId))
     .orderBy(messages.createdAt);
 
-  const chatMessages: ChatCompletionMessageParam[] = [
+  const chatMessages: ChatMessage[] = [
     { role: "system", content: GHOSTPHERE_SYSTEM_PROMPT },
-    ...history.map(m => ({
+    ...history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     })),

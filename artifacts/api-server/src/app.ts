@@ -3,8 +3,9 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import { authMiddleware } from "./middlewares/authMiddleware";
-import router from "./routes";
-import { logger } from "./lib/logger";
+import router from "./routes/index.js";
+import { logger } from "./lib/logger.js";
+import { startScheduler } from "./lib/sportsCache.js";
 
 const app: Express = express();
 
@@ -34,5 +35,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
 
 app.use("/api", router);
+
+// Start the sports data refresh scheduler.
+// Runs immediately on boot, then every PICKS_REFRESH_INTERVAL_MINUTES (default 15).
+startScheduler();
 
 export default app;

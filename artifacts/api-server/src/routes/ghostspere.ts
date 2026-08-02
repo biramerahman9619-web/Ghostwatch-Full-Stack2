@@ -5,8 +5,8 @@ import {
   SendTicketEmailBody,
   SendTicketEmailResponse,
 } from "@workspace/api-zod";
-import { mockTickets } from "../lib/mockData";
-import { logger } from "../lib/logger";
+import { getTickets } from "../lib/sportsCache.js";
+import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
@@ -17,7 +17,7 @@ router.get("/ghostspere/tickets", async (req, res): Promise<void> => {
     return;
   }
 
-  let tickets = [...mockTickets];
+  let tickets = [...getTickets()];
   if (query.data.riskTier) {
     tickets = tickets.filter((t) => t.riskTier === query.data.riskTier);
   }

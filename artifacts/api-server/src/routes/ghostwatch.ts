@@ -7,35 +7,9 @@ import {
   ListGamesResponse,
   GetTopPicksResponse,
 } from "@workspace/api-zod";
-import { mockPicks, mockGames } from "../lib/mockData";
-import {
-  getAllPicks,
-  getAllGames,
-  isApiConfigured,
-  getCacheState,
-  refreshSportsData,
-} from "../lib/sportsCache";
-import type { GeneratedPick } from "../lib/picksEngine";
+import { getGames, getPicks, getCacheStatus, isApiConfigured, refreshSportsData } from "../lib/sportsCache.js";
 
 const router: IRouter = Router();
-
-/** Merge real + mock picks, preferring real data when available. */
-function getActivePicks() {
-  if (isApiConfigured()) {
-    const real = getAllPicks();
-    if (real.length > 0) return real;
-  }
-  // Fall back to mock data when API not configured or no data yet
-  return mockPicks as unknown as GeneratedPick[];
-}
-
-function getActiveGames() {
-  if (isApiConfigured()) {
-    const real = getAllGames();
-    if (real.length > 0) return real;
-  }
-  return mockGames;
-}
 
 router.get("/ghostwatch/picks", async (req, res): Promise<void> => {
   const query = ListPicksQueryParams.safeParse(req.query);
@@ -44,7 +18,7 @@ router.get("/ghostwatch/picks", async (req, res): Promise<void> => {
     return;
   }
 
-  let picks = getActivePicks();
+  let picks = [...getPicks()];
 
   if (query.data.sport) {
     picks = picks.filter((p) => p.sport.toLowerCase() === query.data.sport!.toLowerCase());
@@ -60,8 +34,7 @@ router.get("/ghostwatch/picks", async (req, res): Promise<void> => {
 });
 
 router.get("/ghostwatch/picks/summary", async (_req, res): Promise<void> => {
-  const picks = getActivePicks();
-  const cache = getCacheState();
+  const picks = getPicks();
 
   const byRiskTier = {
     Safe: picks.filter((p) => p.riskTier === "Safe").length,
@@ -73,10 +46,9 @@ router.get("/ghostwatch/picks/summary", async (_req, res): Promise<void> => {
     return acc;
   }, {});
   const bySport = Object.entries(sportCounts).map(([sport, count]) => ({ sport, count }));
-  const avgConfidence =
-    picks.length > 0
-      ? picks.reduce((sum, p) => sum + p.confidence, 0) / picks.length
-      : 0;
+  const avgConfidence = picks.length
+    ? picks.reduce((sum, p) => sum + p.confidence, 0) / picks.length
+    : 0;
   const topSport = [...bySport].sort((a, b) => b.count - a.count)[0]?.sport ?? "NBA";
 
   res.json(
@@ -86,13 +58,6 @@ router.get("/ghostwatch/picks/summary", async (_req, res): Promise<void> => {
       bySport,
       avgConfidence: Math.round(avgConfidence * 10) / 10,
       topSport,
-      // Metadata fields (not in Zod schema but ignored by parse)
-      _meta: {
-        isRealData: cache.isRealData,
-        lastRefresh: cache.lastRefresh?.toISOString() ?? null,
-        quotaRemaining: cache.quotaRemaining,
-        error: cache.error,
-      },
     }),
   );
 });
@@ -104,7 +69,7 @@ router.get("/ghostwatch/games", async (req, res): Promise<void> => {
     return;
   }
 
-  let games = getActiveGames();
+  let games = [...getGames()];
   if (query.data.sport) {
     games = games.filter(
       (g) => g.sport.toLowerCase() === query.data.sport!.toLowerCase(),
@@ -115,36 +80,24 @@ router.get("/ghostwatch/games", async (req, res): Promise<void> => {
 });
 
 router.get("/ghostwatch/top-picks", async (_req, res): Promise<void> => {
-  const top = [...getActivePicks()]
+  const top = [...getPicks()]
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 5);
   res.json(GetTopPicksResponse.parse(top));
 });
 
-// Manual refresh endpoint
+// Manual one-off refresh (useful for development/admin)
 router.post("/ghostwatch/refresh", async (_req, res): Promise<void> => {
   if (!isApiConfigured()) {
     res.status(400).json({ error: "THE_ODDS_API_KEY not configured" });
     return;
   }
-  // Kick off async refresh, respond immediately
   refreshSportsData(true).catch(() => {});
   res.json({ status: "refresh started" });
 });
 
-// Data status endpoint
 router.get("/ghostwatch/status", async (_req, res): Promise<void> => {
-  const cache = getCacheState();
-  res.json({
-    isRealData: cache.isRealData,
-    isApiConfigured: isApiConfigured(),
-    lastRefresh: cache.lastRefresh?.toISOString() ?? null,
-    isRefreshing: cache.isRefreshing,
-    error: cache.error,
-    quotaRemaining: cache.quotaRemaining,
-    sportCount: cache.sports.length,
-    totalPicks: cache.sports.reduce((s, e) => s + e.picks.length, 0),
-  });
+  res.json(getCacheStatus());
 });
 
 export default router;
