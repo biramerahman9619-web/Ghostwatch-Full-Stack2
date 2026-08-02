@@ -553,7 +553,23 @@ components:
       type: object
       required: [status]
       properties:
-        status: { type: string }
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: '"ok" when live data is fresh; "degraded" when stale or no API key'
+        dataFreshness:
+          type: string
+          enum: [ok, stale, no_api_key]
+          description: '"ok" fresh live data; "stale" real data overdue for refresh; "no_api_key" running in demo mode'
+        isStale:
+          type: boolean
+          description: True when picks are older than PICKS_STALENESS_MINUTES or no API key is configured
+        lastRefreshedAt:
+          type: ["string", "null"]
+          description: ISO 8601 timestamp of the last successful picks refresh, or null if never refreshed
+        consecutiveFailures:
+          type: number
+          description: Number of back-to-back refresh failures; resets to 0 on success
 
     PicksRefreshStatus:
       type: object
@@ -565,6 +581,15 @@ components:
         lastRefreshedAt:
           type: ["string", "null"]
           description: ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
+        isStale:
+          type: boolean
+          description: True when picks are older than the staleness threshold or the API key is not set
+        consecutiveFailures:
+          type: number
+          description: Number of consecutive refresh failures (resets to 0 on success)
+        lastError:
+          type: ["string", "null"]
+          description: Error message from the most recent failed refresh attempt
 
     RefreshStartedResponse:
       type: object

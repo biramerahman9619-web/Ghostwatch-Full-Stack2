@@ -190,7 +190,11 @@ export const SendOpenaiMessageResponse = zod.unknown()
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.enum(['ok', 'degraded']),
+  "dataFreshness": zod.enum(['ok', 'stale', 'no_api_key']).optional(),
+  "isStale": zod.boolean().optional(),
+  "lastRefreshedAt": zod.string().nullable().optional(),
+  "consecutiveFailures": zod.number().optional(),
 })
 
 
