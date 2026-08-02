@@ -782,6 +782,7 @@ components:
         description: { type: string }
         severity: { type: string, enum: [Low, Medium, High] }
         source: { type: string }
+        sourceUrl: { type: string }
         createdAt: { type: string }
 
     PlayerSocialScore:

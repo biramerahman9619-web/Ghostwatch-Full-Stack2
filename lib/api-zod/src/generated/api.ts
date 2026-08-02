@@ -421,6 +421,7 @@ export const ListAlertsResponseItem = zod.object({
   "description": zod.string(),
   "severity": zod.enum(['Low', 'Medium', 'High']),
   "source": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
   "createdAt": zod.string()
 })
 export const ListAlertsResponse = zod.array(ListAlertsResponseItem)
