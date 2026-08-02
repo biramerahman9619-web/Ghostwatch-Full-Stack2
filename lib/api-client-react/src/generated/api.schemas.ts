@@ -453,6 +453,118 @@ export interface AgentChatInput {
   message: string;
 }
 
+export type PickWithResultDirection = typeof PickWithResultDirection[keyof typeof PickWithResultDirection];
+
+
+export const PickWithResultDirection = {
+  Over: 'Over',
+  Under: 'Under',
+} as const;
+
+export type PickWithResultRiskTier = typeof PickWithResultRiskTier[keyof typeof PickWithResultRiskTier];
+
+
+export const PickWithResultRiskTier = {
+  Safe: 'Safe',
+  Balanced: 'Balanced',
+  Aggressive: 'Aggressive',
+} as const;
+
+export type PickWithResultGameStatus = typeof PickWithResultGameStatus[keyof typeof PickWithResultGameStatus];
+
+
+export const PickWithResultGameStatus = {
+  Live: 'Live',
+  Halftime: 'Halftime',
+  Final: 'Final',
+  Upcoming: 'Upcoming',
+  Unknown: 'Unknown',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PickWithResultResult = typeof PickWithResultResult[keyof typeof PickWithResultResult] | null;
+
+
+export const PickWithResultResult = {
+  hit: 'hit',
+  miss: 'miss',
+  push: 'push',
+  null: 'null',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PickWithResultSettledSource = typeof PickWithResultSettledSource[keyof typeof PickWithResultSettledSource] | null;
+
+
+export const PickWithResultSettledSource = {
+  espn: 'espn',
+  manual: 'manual',
+  null: 'null',
+} as const;
+
+export interface PickWithResult {
+  pickId: string;
+  playerName: string;
+  team: string;
+  sport: string;
+  propType: string;
+  line: number;
+  direction: PickWithResultDirection;
+  confidence: number;
+  riskTier: PickWithResultRiskTier;
+  /** @nullable */
+  commenceTime?: string | null;
+  gameStatus: PickWithResultGameStatus;
+  homeTeam: string;
+  awayTeam: string;
+  /** @nullable */
+  homeScore?: number | null;
+  /** @nullable */
+  awayScore?: number | null;
+  /** @nullable */
+  quarter?: string | null;
+  /** @nullable */
+  timeRemaining?: string | null;
+  /** @nullable */
+  result?: PickWithResultResult;
+  /** @nullable */
+  settledValue?: string | null;
+  /** @nullable */
+  settledSource?: PickWithResultSettledSource;
+  ticketIds: string[];
+}
+
+export type SettlePickInputResult = typeof SettlePickInputResult[keyof typeof SettlePickInputResult] | null;
+
+
+export const SettlePickInputResult = {
+  hit: 'hit',
+  miss: 'miss',
+  push: 'push',
+} as const;
+
+export interface SettlePickInput {
+  result: SettlePickInputResult;
+}
+
+export type SettlePickResponseResult = typeof SettlePickResponseResult[keyof typeof SettlePickResponseResult] | null;
+
+
+export const SettlePickResponseResult = {
+  hit: 'hit',
+  miss: 'miss',
+  push: 'push',
+} as const;
+
+export interface SettlePickResponse {
+  pickId: string;
+  result?: SettlePickResponseResult;
+}
+
 export type SocialAlertAlertType = typeof SocialAlertAlertType[keyof typeof SocialAlertAlertType];
 
 

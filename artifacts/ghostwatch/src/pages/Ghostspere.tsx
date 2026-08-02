@@ -8,11 +8,14 @@ import {
   useGetAgentStatus,
   useListAgentLog,
   useEvaluateAgentTickets,
+  useListPickResults,
+  useSettlePickResult,
   getListTicketsQueryKey,
   getGetSettingsQueryKey,
   getGetAgentConfigQueryKey,
   getGetAgentStatusQueryKey,
   getListAgentLogQueryKey,
+  getListPickResultsQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +23,27 @@ import { Button } from "@/components/ui/button";
 import {
   Bot, Mail, Settings2, SplitSquareHorizontal, Shield, ShieldCheck, ShieldOff,
   Zap, Clock, Send, Activity, MessageSquare, TrendingUp, RefreshCw,
+  CheckCircle, XCircle, MinusCircle, Radio, CalendarClock, Trophy,
 } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+
+// ─── Pick result local type ───────────────────────────────────────────────────
+type PickWithResult = {
+  pickId: string; playerName: string; team: string; sport: string;
+  propType: string; line: number; direction: "Over" | "Under";
+  confidence: number; riskTier: string;
+  commenceTime: string | null; gameStatus: string;
+  homeTeam: string; awayTeam: string;
+  homeScore: number | null; awayScore: number | null;
+  quarter: string | null; timeRemaining: string | null;
+  result: "hit" | "miss" | "push" | null;
+  settledValue: string | null;
+  settledSource: "espn" | "manual" | null;
+  ticketIds: string[];
+};
 
 // ─── Multiplier tables ────────────────────────────────────────────────────────
 const PP_MULTIPLIERS: Record<number, number> = { 2: 3, 3: 5, 4: 10, 5: 20, 6: 40 };
@@ -177,6 +196,178 @@ function LogEntry({ entry }: { entry: any }) {
   );
 }
 
+// ─── Pick result row ──────────────────────────────────────────────────────────
+function GameStatusBadge({ status }: { status: string }) {
+  if (status === "Live") return (
+    <span className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wide text-rose-400 border border-rose-400/30 rounded px-1.5 py-0.5 bg-rose-400/10">
+      <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />LIVE
+    </span>
+  );
+  if (status === "Halftime") return (
+    <span className="text-[9px] font-mono font-bold uppercase tracking-wide text-amber-400 border border-amber-400/30 rounded px-1.5 py-0.5 bg-amber-400/10">HT</span>
+  );
+  if (status === "Final") return (
+    <span className="text-[9px] font-mono font-bold uppercase tracking-wide text-muted-foreground border border-border/40 rounded px-1.5 py-0.5">FINAL</span>
+  );
+  return null; // Upcoming — time shown separately
+}
+
+function GameTimeDisplay({ commenceTime }: { commenceTime: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!commenceTime) return null;
+  const gt = new Date(commenceTime).getTime();
+  const diff = Math.floor((gt - now) / 1000);
+  let label: string;
+  if (diff <= 0) {
+    label = "started";
+  } else if (diff < 3600) {
+    const m = Math.floor(diff / 60);
+    label = `in ${m}m`;
+  } else if (diff < 86400) {
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    label = m > 0 ? `in ${h}h ${m}m` : `in ${h}h`;
+  } else {
+    label = new Date(commenceTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  }
+  return (
+    <span className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/80">
+      <CalendarClock className="w-3 h-3" />{label}
+    </span>
+  );
+}
+
+function PickResultRow({ pick, onSettle }: {
+  pick: PickWithResult;
+  onSettle: (pickId: string, result: "hit" | "miss" | "push" | null) => void;
+}) {
+  const isLive = pick.gameStatus === "Live" || pick.gameStatus === "Halftime";
+  const isFinal = pick.gameStatus === "Final";
+  const hasScore = pick.homeScore !== null && pick.awayScore !== null;
+  const result = pick.result;
+  const isWon  = result === "hit";
+  const isLost = result === "miss";
+  const isPush = result === "push";
+
+  // Format the settled stat display: "27 Pts" / "3 REB" etc.
+  const statLine = pick.settledValue != null
+    ? `Actual: ${pick.settledValue} (${pick.direction} ${pick.line})`
+    : null;
+
+  return (
+    <div className={cn(
+      "rounded-xl border transition-all overflow-hidden",
+      isLive  && !result ? "border-rose-400/30 bg-rose-400/5"   : "",
+      isFinal && !result ? "border-border/60 bg-card/50"         : "",
+      !isFinal && !isLive && !result ? "border-border/40 bg-card/30" : "",
+      isWon  ? "border-emerald-500/50 bg-emerald-500/8"  : "",
+      isLost ? "border-red-500/50 bg-red-500/8"          : "",
+      isPush ? "border-amber-400/40 bg-amber-400/8"      : "",
+    )}>
+      {/* ── WON / LOST / PUSH result banner ── */}
+      {result && (
+        <div className={cn(
+          "flex items-center justify-between px-4 py-2.5 border-b",
+          isWon  ? "bg-emerald-500/15 border-emerald-500/30" : "",
+          isLost ? "bg-red-500/15 border-red-500/30"         : "",
+          isPush ? "bg-amber-400/15 border-amber-400/30"     : "",
+        )}>
+          <div className="flex items-center gap-2">
+            {isWon  && <><CheckCircle  className="w-5 h-5 text-emerald-400" /><span className="text-base font-black tracking-wide text-emerald-400 uppercase">Won ✓</span></>}
+            {isLost && <><XCircle      className="w-5 h-5 text-red-400"     /><span className="text-base font-black tracking-wide text-red-400 uppercase">Lost ✗</span></>}
+            {isPush && <><MinusCircle  className="w-5 h-5 text-amber-400"   /><span className="text-base font-black tracking-wide text-amber-400 uppercase">Push ~</span></>}
+            {statLine && (
+              <span className={cn("text-[10px] font-mono ml-1",
+                isWon ? "text-emerald-400/70" : isLost ? "text-red-400/70" : "text-amber-400/70"
+              )}>{statLine}</span>
+            )}
+            {pick.settledSource === "espn" && (
+              <span className="text-[8px] font-mono text-muted-foreground/40 ml-1 border border-border/30 rounded px-1 py-0.5">ESPN</span>
+            )}
+          </div>
+          <button
+            onClick={() => onSettle(pick.pickId, null)}
+            className="text-[9px] font-mono text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            title="Clear result"
+          >✕ clear</button>
+        </div>
+      )}
+
+      {/* ── Pick detail row ── */}
+      <div className="flex items-start gap-3 px-4 py-3">
+        {/* Left: status + score block */}
+        <div className="w-20 flex-shrink-0 flex flex-col items-center gap-1.5 pt-0.5">
+          <GameStatusBadge status={pick.gameStatus} />
+          {pick.gameStatus === "Upcoming" && <GameTimeDisplay commenceTime={pick.commenceTime} />}
+          {hasScore && (
+            <div className="text-[10px] font-mono font-bold text-foreground text-center leading-tight mt-0.5">
+              <div className="truncate max-w-[76px]" title={pick.homeTeam}>{pick.homeTeam.split(" ").pop()}</div>
+              <div className="text-base font-bold text-foreground">{pick.homeScore} – {pick.awayScore}</div>
+              <div className="truncate max-w-[76px]" title={pick.awayTeam}>{pick.awayTeam.split(" ").pop()}</div>
+              {pick.quarter && <div className="text-[9px] text-muted-foreground">{pick.quarter}{pick.timeRemaining ? ` · ${pick.timeRemaining}` : ""}</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Middle: pick info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className={cn("font-bold text-sm",
+              isWon ? "text-emerald-300" : isLost ? "text-red-300" : "text-foreground"
+            )}>{pick.playerName}</span>
+            <span className="text-[10px] font-mono text-muted-foreground border border-border/40 rounded px-1.5 py-0.5">{pick.sport}</span>
+            <span className={cn("text-[9px] font-mono border rounded px-1.5 py-0.5",
+              pick.riskTier === "Safe"       ? "border-emerald-400/30 text-emerald-400/80" :
+              pick.riskTier === "Aggressive" ? "border-rose-400/30 text-rose-400/80"       :
+                                               "border-blue-400/30 text-blue-400/80"
+            )}>{pick.riskTier}</span>
+          </div>
+          <div className="text-xs font-mono text-muted-foreground mb-1">
+            {pick.propType} · {pick.direction === "Over" ? "↑ Over" : "↓ Under"}{" "}
+            <span className={cn("font-bold", isWon ? "text-emerald-400" : isLost ? "text-red-400" : "text-primary")}>
+              {pick.line}
+            </span>
+          </div>
+          <div className="text-[9px] font-mono text-muted-foreground/60 truncate">
+            {pick.homeTeam} vs {pick.awayTeam}
+          </div>
+        </div>
+
+        {/* Right: confidence + manual settle buttons (only when no result yet) */}
+        <div className="flex-shrink-0 flex flex-col items-end gap-2">
+          <span className={cn("text-[10px] font-mono font-bold",
+            pick.confidence >= 80 ? "text-emerald-400" : pick.confidence >= 65 ? "text-yellow-400" : "text-muted-foreground"
+          )}>{pick.confidence}%</span>
+
+          {!result && (isFinal || isLive) && (
+            <div className="flex flex-col gap-1">
+              <button onClick={() => onSettle(pick.pickId, "hit")}
+                className="text-[9px] font-mono px-2 py-1 rounded border border-emerald-400/30 text-emerald-400/70 hover:bg-emerald-400/15 hover:text-emerald-400 hover:border-emerald-400/60 transition-colors">
+                ✓ Won
+              </button>
+              <button onClick={() => onSettle(pick.pickId, "miss")}
+                className="text-[9px] font-mono px-2 py-1 rounded border border-red-400/30 text-red-400/70 hover:bg-red-400/15 hover:text-red-400 hover:border-red-400/60 transition-colors">
+                ✗ Lost
+              </button>
+              <button onClick={() => onSettle(pick.pickId, "push")}
+                className="text-[9px] font-mono px-2 py-1 rounded border border-amber-400/30 text-amber-400/70 hover:bg-amber-400/15 hover:text-amber-400 hover:border-amber-400/60 transition-colors">
+                ~ Push
+              </button>
+            </div>
+          )}
+          {!result && !isFinal && !isLive && (
+            <span className="text-[9px] font-mono text-muted-foreground/30">pre-game</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function Ghostspere() {
   const { data: tickets, isLoading: loadingTickets } = useListTickets();
@@ -202,6 +393,23 @@ export default function Ghostspere() {
   const [editThreshold, setEditThreshold] = useState(75);
   const [editSignalWatch, setEditSignalWatch] = useState(true);
   const [editMaxPerDay, setEditMaxPerDay] = useState(3);
+
+  // ── Center view toggle ──
+  const [centerView, setCenterView] = useState<"entries" | "results">("entries");
+
+  // ── Pick results ──
+  const { data: pickResults, isLoading: loadingResults, refetch: refetchResults } =
+    useListPickResults({ query: { queryKey: getListPickResultsQueryKey(), refetchInterval: centerView === "results" ? 30_000 : false } });
+  const settleResult = useSettlePickResult();
+
+  const handleSettle = useCallback((pickId: string, result: "hit" | "miss" | "push" | null) => {
+    if (result === null) {
+      // Clear via POST null — server requires auth, will 401 silently if not logged in
+      settleResult.mutate({ pickId, data: { result: null as any } }, { onSuccess: () => refetchResults() });
+    } else {
+      settleResult.mutate({ pickId, data: { result } }, { onSuccess: () => refetchResults() });
+    }
+  }, [settleResult, refetchResults]);
 
   // ── Ticket state ──
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
@@ -297,14 +505,46 @@ export default function Ghostspere() {
 
   const handleSaveSettings = () => {
     updateSettings.mutate(
-      { data: { email: editEmail, riskProfile: editRisk as any, entryType: editEntryType as any, picksPerTicket: editPicks } },
+      { data: { email: editEmail, picksPerTicket: editPicks } },
       {
         onSuccess: () => {
-          toast({ title: "Settings saved", className: "border-primary bg-card text-primary font-mono" });
+          toast({ title: "Delivery settings saved", className: "border-primary bg-card text-primary font-mono" });
           queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
         },
         onError: (err: any) => toast({ title: "Save failed", description: err?.response?.data?.error ?? err?.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  // Auto-save entry type immediately on selection
+  const handleSelectEntryType = (t: "PowerPlay" | "FlexPlay") => {
+    setEditEntryType(t);
+    setEvaluations(new Map());
+    setEvalFailed(false);
+    updateSettings.mutate(
+      { data: { entryType: t as any } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
+        },
+      },
+    );
+  };
+
+  // Auto-save risk profile immediately on selection
+  const handleSelectRisk = (r: "Safe" | "Balanced" | "Aggressive" | "Mixed") => {
+    setEditRisk(r);
+    setEvaluations(new Map());
+    setEvalFailed(false);
+    updateSettings.mutate(
+      { data: { riskProfile: r as any } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
+        },
       },
     );
   };
@@ -559,7 +799,7 @@ export default function Ghostspere() {
             </Button>
 
             <div className="border-t border-border/50 pt-4 space-y-4">
-              <div className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest">Entry Settings</div>
+              <div className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest">Delivery</div>
 
               {/* Email */}
               <div className="bg-secondary/50 border border-border rounded-md px-3 py-2 flex items-center gap-2">
@@ -570,28 +810,6 @@ export default function Ghostspere() {
                   className="bg-transparent border-none outline-none text-xs font-mono text-foreground w-full"
                   placeholder="Delivery email"
                 />
-              </div>
-
-              {/* Risk profile */}
-              <div className="grid grid-cols-2 gap-1 bg-secondary/30 p-1 rounded-md border border-border">
-                {(["Safe", "Balanced", "Aggressive", "Mixed"] as const).map((r) => (
-                  <button key={r} onClick={() => setEditRisk(r)}
-                    className={cn("py-1.5 text-[10px] font-mono rounded border transition-all uppercase tracking-wide",
-                      editRisk === r ? "bg-primary/20 border-primary/50 text-primary font-bold" : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}>{r}</button>
-                ))}
-              </div>
-
-              {/* Entry type */}
-              <div className="grid grid-cols-2 gap-1 bg-secondary/30 p-1 rounded-md border border-border">
-                {(["PowerPlay", "FlexPlay"] as const).map((t) => (
-                  <button key={t} onClick={() => setEditEntryType(t)}
-                    className={cn("py-1.5 text-[10px] font-mono rounded border transition-all",
-                      editEntryType === t
-                        ? t === "FlexPlay" ? "bg-sky-500/20 border-sky-400/50 text-sky-300 font-bold" : "bg-purple-500/20 border-purple-400/50 text-purple-300 font-bold"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    )}>{t === "PowerPlay" ? "⚡ Power Play" : "🔄 Flex Play"}</button>
-                ))}
               </div>
 
               {/* Picks per entry */}
@@ -611,14 +829,107 @@ export default function Ghostspere() {
 
               <Button onClick={handleSaveSettings} disabled={updateSettings.isPending} variant="outline" size="sm"
                 className="w-full font-mono text-[10px] uppercase tracking-widest border-border text-muted-foreground hover:text-foreground">
-                {updateSettings.isPending ? "Saving..." : "Save Entry Settings"}
+                {updateSettings.isPending ? "Saving..." : "Save Delivery Settings"}
               </Button>
             </div>
           </div>
         </div>
 
         {/* ── CENTER: Tickets ──────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* ── Selector bar ─────────────────────────────────────────────────── */}
+          <div className="flex-shrink-0 border-b border-border bg-card/20 px-5 py-3 flex items-center gap-4 flex-wrap">
+            {/* Entry type */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mr-1">Entry</span>
+              {(["PowerPlay", "FlexPlay"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => handleSelectEntryType(t)}
+                  disabled={updateSettings.isPending}
+                  className={cn(
+                    "px-3 py-1.5 text-[11px] font-mono rounded-md border transition-all font-semibold",
+                    editEntryType === t
+                      ? t === "FlexPlay"
+                        ? "bg-sky-500/20 border-sky-400/60 text-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.15)]"
+                        : "bg-violet-500/20 border-violet-400/60 text-violet-300 shadow-[0_0_8px_rgba(167,139,250,0.15)]"
+                      : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+                  )}
+                >
+                  {t === "PowerPlay" ? "⚡ Power Play" : "🔄 Flex Play"}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-px h-5 bg-border/60 flex-shrink-0" />
+
+            {/* Risk profile */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mr-1">Risk</span>
+              {([
+                { value: "Safe", label: "🟢 Safe", active: "bg-emerald-500/15 border-emerald-400/50 text-emerald-300" },
+                { value: "Balanced", label: "🔵 Balanced", active: "bg-blue-500/15 border-blue-400/50 text-blue-300" },
+                { value: "Aggressive", label: "🔴 Aggressive", active: "bg-rose-500/15 border-rose-400/50 text-rose-300" },
+                { value: "Mixed", label: "⚡ Mixed", active: "bg-amber-500/15 border-amber-400/50 text-amber-300" },
+              ] as const).map(({ value, label, active }) => (
+                <button
+                  key={value}
+                  onClick={() => handleSelectRisk(value)}
+                  disabled={updateSettings.isPending}
+                  className={cn(
+                    "px-3 py-1.5 text-[11px] font-mono rounded-md border transition-all font-semibold",
+                    editRisk === value
+                      ? `${active} shadow-sm`
+                      : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Saving indicator */}
+            {updateSettings.isPending && (
+              <span className="text-[9px] font-mono text-primary animate-pulse">saving…</span>
+            )}
+
+            {/* View toggle — pushed to right */}
+            <div className="ml-auto flex items-center gap-0.5 bg-secondary/40 rounded-lg p-0.5 border border-border/50">
+              <button
+                onClick={() => setCenterView("entries")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-md transition-all font-semibold",
+                  centerView === "entries"
+                    ? "bg-card text-foreground shadow-sm border border-border/60"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <SplitSquareHorizontal className="w-3 h-3" />Entries
+              </button>
+              <button
+                onClick={() => { setCenterView("results"); refetchResults(); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-md transition-all font-semibold",
+                  centerView === "results"
+                    ? "bg-card text-foreground shadow-sm border border-border/60"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Radio className="w-3 h-3" />Live Results
+                {pickResults && (() => {
+                  const liveCount = pickResults.filter(p => p.gameStatus === "Live" || p.gameStatus === "Halftime").length;
+                  return liveCount > 0
+                    ? <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                    : null;
+                })()}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Entries view ─────────────────────────────────────────────────── */}
+          {centerView === "entries" && (
+          <div className="flex-1 overflow-y-auto p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
               <SplitSquareHorizontal className="w-3.5 h-3.5 text-primary" />
@@ -638,7 +949,6 @@ export default function Ghostspere() {
                   onClick={runEvaluation}
                   disabled={evaluateMutation.isPending}
                   className="flex items-center gap-1 text-[9px] font-mono text-yellow-400/70 hover:text-yellow-400 border border-yellow-400/20 rounded px-1.5 py-0.5 transition-colors"
-                  title="Re-run AI evaluation"
                 >
                   <RefreshCw className="w-2.5 h-2.5" />Retry eval
                 </button>
@@ -650,7 +960,6 @@ export default function Ghostspere() {
                   setEvalFailed(false);
                 }}
                 className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/60 hover:text-muted-foreground border border-border/40 rounded px-1.5 py-0.5 transition-colors"
-                title="Reload picks"
               >
                 <RefreshCw className="w-2.5 h-2.5" />Reload
               </button>
@@ -681,7 +990,118 @@ export default function Ghostspere() {
               ))}
             </div>
           )}
-        </div>
+          </div>
+          )}{/* end entries view */}
+
+          {/* ── Live Results view ─────────────────────────────────────────────── */}
+          {centerView === "results" && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                <Radio className="w-3.5 h-3.5 text-primary" />
+                Live Results
+                {loadingResults && <span className="text-[9px] text-primary animate-pulse">· loading...</span>}
+              </h2>
+              <button
+                onClick={() => refetchResults()}
+                className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/60 hover:text-muted-foreground border border-border/40 rounded px-1.5 py-0.5 transition-colors"
+              >
+                <RefreshCw className="w-2.5 h-2.5" />Refresh
+              </button>
+            </div>
+
+            {!pickResults?.length ? (
+              <div className="p-12 border border-dashed border-border rounded-lg text-center text-muted-foreground font-mono flex flex-col items-center">
+                <Trophy className="w-10 h-10 mb-3 opacity-40 text-primary" />
+                <p className="text-sm">No pick results yet.</p>
+                <p className="text-xs mt-1 opacity-50">Results appear once your tickets have picks with scheduled games.</p>
+              </div>
+            ) : (() => {
+              const live = pickResults.filter(p => p.gameStatus === "Live" || p.gameStatus === "Halftime");
+              const upcoming = pickResults.filter(p => p.gameStatus === "Upcoming" || p.gameStatus === "Unknown");
+              const finals = pickResults.filter(p => p.gameStatus === "Final");
+              const won  = (pickResults as PickWithResult[]).filter(p => p.result === "hit").length;
+              const lost = (pickResults as PickWithResult[]).filter(p => p.result === "miss").length;
+              const push = (pickResults as PickWithResult[]).filter(p => p.result === "push").length;
+              const autoSettled = (pickResults as PickWithResult[]).filter(p => p.settledSource === "espn").length;
+              return (
+                <div className="space-y-5">
+                  {/* Stats bar */}
+                  <div className="grid grid-cols-5 gap-2">
+                    <div className="bg-secondary/30 border border-border/40 rounded-lg p-2.5 text-center">
+                      <div className="text-xl font-mono font-bold text-foreground">{pickResults.length}</div>
+                      <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-wide mt-0.5">Picks</div>
+                    </div>
+                    <div className="bg-secondary/30 border border-border/40 rounded-lg p-2.5 text-center">
+                      <div className="text-xl font-mono font-bold text-rose-400">{live.length}</div>
+                      <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-wide mt-0.5">Live</div>
+                    </div>
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2.5 text-center">
+                      <div className="text-xl font-mono font-bold text-emerald-400">{won}</div>
+                      <div className="text-[9px] font-mono text-emerald-400/60 uppercase tracking-wide mt-0.5">Won ✓</div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2.5 text-center">
+                      <div className="text-xl font-mono font-bold text-red-400">{lost}</div>
+                      <div className="text-[9px] font-mono text-red-400/60 uppercase tracking-wide mt-0.5">Lost ✗</div>
+                    </div>
+                    <div className="bg-secondary/30 border border-border/40 rounded-lg p-2.5 text-center">
+                      <div className="text-xl font-mono font-bold text-amber-400">{push}</div>
+                      <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-wide mt-0.5">Push</div>
+                    </div>
+                  </div>
+                  {autoSettled > 0 && (
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono text-muted-foreground/50">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400/50" />
+                      {autoSettled} result{autoSettled !== 1 ? "s" : ""} auto-settled from ESPN live data
+                    </div>
+                  )}
+
+                  {/* Live section */}
+                  {live.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                        <span className="text-[10px] font-mono text-rose-400 uppercase tracking-widest font-bold">Live Now</span>
+                        <span className="text-[9px] font-mono text-muted-foreground">({live.length})</span>
+                      </div>
+                      <div className="space-y-2">
+                        {live.map(p => <PickResultRow key={p.pickId} pick={p as PickWithResult} onSettle={handleSettle} />)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Upcoming section */}
+                  {upcoming.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
+                        <CalendarClock className="w-3 h-3" />Upcoming
+                        <span className="font-normal text-muted-foreground/60">({upcoming.length})</span>
+                      </div>
+                      <div className="space-y-2">
+                        {upcoming.map(p => <PickResultRow key={p.pickId} pick={p as PickWithResult} onSettle={handleSettle} />)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Final section */}
+                  {finals.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
+                        <Trophy className="w-3 h-3" />Final
+                        <span className="font-normal text-muted-foreground/60">({finals.length})</span>
+                      </div>
+                      <div className="space-y-2">
+                        {finals.map(p => <PickResultRow key={p.pickId} pick={p as PickWithResult} onSettle={handleSettle} />)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+          )}{/* end results view */}
+
+        </div>{/* end center flex-col */}
 
         {/* ── RIGHT: Mission Log + Chat ────────────────────────────────────── */}
         <div className="w-80 flex-shrink-0 border-l border-border flex flex-col">
