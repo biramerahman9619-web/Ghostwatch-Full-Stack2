@@ -4,6 +4,8 @@ import { z } from "zod/v4";
 
 export const userSettingsTable = pgTable("user_settings", {
   id: serial("id").primaryKey(),
+  /** Replit Auth user ID — null for legacy rows created before multi-user support. */
+  userId: text("user_id"),
   email: text("email").notNull().default(""),
   preferredSports: text("preferred_sports").notNull().default("NBA,NFL"),
   riskProfile: text("risk_profile").notNull().default("Balanced"),

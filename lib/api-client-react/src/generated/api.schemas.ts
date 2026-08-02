@@ -19,11 +19,15 @@ export interface HealthStatus {
   lastRefreshedAt?: string | null;
   /** Number of back-to-back refresh failures; resets to 0 on success */
   consecutiveFailures?: number;
+  /** "live" fetched this session; "snapshot" restored from disk; "mock" no API key */
+  source?: 'live' | 'snapshot' | 'mock';
 }
 
 export interface PicksRefreshStatus {
   /** True when picks were generated from a live API, false when serving mock data */
   usingRealData: boolean;
+  /** "live" fetched this session; "snapshot" restored from disk on startup; "mock" no API key */
+  source?: 'live' | 'snapshot' | 'mock';
   /**
      * ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
      * @nullable

@@ -195,6 +195,7 @@ export const HealthCheckResponse = zod.object({
   "isStale": zod.boolean().optional(),
   "lastRefreshedAt": zod.string().nullable().optional(),
   "consecutiveFailures": zod.number().optional(),
+  "source": zod.enum(['live', 'snapshot', 'mock']).optional(),
 })
 
 
