@@ -17,7 +17,7 @@ router.get("/healthz", (_req, res) => {
     dataFreshness = "ok";
   }
 
-  // "ok" = live data fresh; "degraded" = serving stale or demo data.
+  // "ok" = live data fresh; "degraded" = serving stale, snapshot, or demo data.
   const status = dataFreshness === "ok" ? "ok" : "degraded";
 
   const data = HealthCheckResponse.parse({
@@ -26,6 +26,7 @@ router.get("/healthz", (_req, res) => {
     isStale: cache.isStale,
     lastRefreshedAt: cache.lastRefreshedAt,
     consecutiveFailures: cache.consecutiveFailures,
+    source: cache.source,
   });
 
   // Return 503 when degraded so external HTTP monitors (Datadog, Uptime Robot,

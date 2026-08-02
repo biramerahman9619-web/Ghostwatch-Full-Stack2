@@ -9,9 +9,20 @@
 export interface PicksRefreshStatus {
   /** True when picks were generated from a live API, false when serving mock data */
   usingRealData: boolean;
+  /** "live" fetched this session; "snapshot" restored from disk on startup; "mock" no API key */
+  source?: 'live' | 'snapshot' | 'mock';
   /**
-     * ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
-     * @nullable
-     */
+   * ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
+   * @nullable
+   */
   lastRefreshedAt?: string | null;
+  /** True when picks are older than the staleness threshold or the API key is not set */
+  isStale?: boolean;
+  /** Number of consecutive refresh failures (resets to 0 on success) */
+  consecutiveFailures?: number;
+  /**
+   * Error message from the most recent failed refresh attempt
+   * @nullable
+   */
+  lastError?: string | null;
 }

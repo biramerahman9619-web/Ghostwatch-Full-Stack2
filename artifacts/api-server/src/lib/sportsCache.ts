@@ -1,5 +1,5 @@
 /**
- * In-memory sports data cache with scheduled refresh.
+ * In-memory sports data cache with scheduled refresh and on-disk snapshot.
  *
  * On startup (and every PICKS_REFRESH_INTERVAL_MINUTES), the cache fetches from
  * The Odds API and generates picks. Routes read from this cache; when the API key
@@ -12,6 +12,17 @@
  *   - null from any fetchPlayerProps call → throws → catch retains prior state.
  *   - livePicks and signals are always cleared when usingRealData is set.
  *   - Mock data is only served when THE_ODDS_API_KEY is not configured.
+ *
+ * Snapshot / restart resilience:
+ *   - After every successful live refresh, the cache is serialised to a JSON
+ *     file at CACHE_SNAPSHOT_PATH (default: /tmp/ghostwatch-cache-snapshot.json).
+ *   - The write is atomic: data is written to a .tmp file then renamed, so a
+ *     crash during the write never leaves a corrupt snapshot.
+ *   - On startup, if THE_ODDS_API_KEY is set, the server loads the snapshot
+ *     (if it exists) and serves it with source="snapshot" while the first live
+ *     refresh runs in the background. This prevents a server restart during an
+ *     outage from falling back to 2024 mock data.
+ *   - A corrupted or version-mismatched snapshot is silently ignored.
  *
  * Staleness:
  *   - Data is considered stale when:
@@ -29,8 +40,10 @@
  *   THE_ODDS_API_KEY               — The Odds API key (required for real data)
  *   PICKS_REFRESH_INTERVAL_MINUTES — How often to refresh (default: 15)
  *   PICKS_STALENESS_MINUTES        — Age at which data is declared stale (default: 45)
+ *   CACHE_SNAPSHOT_PATH            — Where to persist the snapshot (default: /tmp/ghostwatch-cache-snapshot.json)
  */
 
+import * as fs from "node:fs";
 import {
   fetchEvents,
   fetchScores,
@@ -59,6 +72,16 @@ import {
 } from "./mockData.js";
 import { logger } from "./logger.js";
 
+// ─── Source types ─────────────────────────────────────────────────────────────
+
+/**
+ * Where the current in-memory data came from:
+ *   "live"     — fetched from The Odds API in this server process
+ *   "snapshot" — loaded from disk on startup; a live refresh is pending
+ *   "mock"     — no API key configured; 2024 demo data
+ */
+export type CacheSource = "live" | "snapshot" | "mock";
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 interface CacheState {
@@ -70,6 +93,7 @@ interface CacheState {
   tickets: ReturnType<typeof buildTicketsFromPicks>;
   lastRefreshedAt: Date | null;
   usingRealData: boolean;
+  source: CacheSource;
   isRefreshing: boolean;
   lastError: string | null;
   quotaRemaining: number | null;
@@ -85,6 +109,7 @@ const state: CacheState = {
   tickets: mockTickets as CacheState["tickets"],
   lastRefreshedAt: null,
   usingRealData: false,
+  source: "mock",
   isRefreshing: false,
   lastError: null,
   quotaRemaining: null,
@@ -118,6 +143,128 @@ export function isDataStale(): boolean {
   if (!state.usingRealData) return true;
   if (!state.lastRefreshedAt) return true;
   return Date.now() - state.lastRefreshedAt.getTime() > getStalenessMs();
+}
+
+// ─── Snapshot ─────────────────────────────────────────────────────────────────
+
+const SNAPSHOT_VERSION = 1 as const;
+
+interface SnapshotPayload {
+  version: typeof SNAPSHOT_VERSION;
+  savedAt: string; // ISO 8601
+  games: GeneratedGame[];
+  picks: GeneratedPick[];
+  liveGames: GeneratedLiveGame[];
+  tickets: ReturnType<typeof buildTicketsFromPicks>;
+}
+
+function getSnapshotPath(): string {
+  return (
+    process.env["CACHE_SNAPSHOT_PATH"] ?? "/tmp/ghostwatch-cache-snapshot.json"
+  );
+}
+
+/**
+ * Atomically serialise the current cache state to disk.
+ * Writes to a .tmp file first then renames to prevent corrupt reads.
+ * Errors are logged and swallowed — a snapshot failure never disrupts serving.
+ */
+function snapshotCache(): void {
+  const snapshotPath = getSnapshotPath();
+  const tmpPath = `${snapshotPath}.tmp`;
+
+  try {
+    const payload: SnapshotPayload = {
+      version: SNAPSHOT_VERSION,
+      savedAt: (state.lastRefreshedAt ?? new Date()).toISOString(),
+      games: state.games,
+      picks: state.picks,
+      liveGames: state.liveGames,
+      tickets: state.tickets,
+    };
+
+    fs.writeFileSync(tmpPath, JSON.stringify(payload), "utf-8");
+    fs.renameSync(tmpPath, snapshotPath);
+
+    logger.info(
+      { path: snapshotPath, picks: state.picks.length, games: state.games.length },
+      "[SportsCache] Snapshot saved",
+    );
+  } catch (err) {
+    // Non-fatal: serve from memory; clean up orphaned .tmp if it exists.
+    logger.warn({ err }, "[SportsCache] Failed to save snapshot — in-memory state unaffected");
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+  }
+}
+
+/**
+ * Attempt to restore cache state from the on-disk snapshot.
+ * Called at startup, before the first live refresh, when THE_ODDS_API_KEY is set.
+ * Returns true if the snapshot was loaded successfully.
+ *
+ * On success the cache serves source="snapshot" data until a live refresh
+ * replaces it with source="live" data.
+ */
+function loadSnapshot(): boolean {
+  const snapshotPath = getSnapshotPath();
+
+  try {
+    if (!fs.existsSync(snapshotPath)) return false;
+
+    const raw = fs.readFileSync(snapshotPath, "utf-8");
+    const payload = JSON.parse(raw) as Partial<SnapshotPayload>;
+
+    if (payload.version !== SNAPSHOT_VERSION) {
+      logger.warn(
+        { version: payload.version, expected: SNAPSHOT_VERSION },
+        "[SportsCache] Snapshot version mismatch — ignoring",
+      );
+      return false;
+    }
+
+    if (!payload.savedAt || !Array.isArray(payload.picks)) {
+      logger.warn("[SportsCache] Snapshot missing required fields — ignoring");
+      return false;
+    }
+
+    // Validate savedAt before committing — an invalid date string would produce
+    // an Invalid Date whose toISOString() call throws, breaking getCacheStatus().
+    const savedAtMs = Date.parse(payload.savedAt);
+    if (!Number.isFinite(savedAtMs)) {
+      logger.warn(
+        { savedAt: payload.savedAt },
+        "[SportsCache] Snapshot has invalid savedAt timestamp — ignoring",
+      );
+      return false;
+    }
+
+    state.games = (payload.games ?? []) as GeneratedGame[];
+    state.picks = payload.picks as GeneratedPick[];
+    state.liveGames = (payload.liveGames ?? []) as GeneratedLiveGame[];
+    state.tickets = (payload.tickets ?? []) as CacheState["tickets"];
+    state.livePicks = [];
+    state.signals = {};
+    state.usingRealData = true;
+    state.source = "snapshot";
+    state.lastRefreshedAt = new Date(savedAtMs);
+
+    logger.info(
+      {
+        path: snapshotPath,
+        picks: state.picks.length,
+        games: state.games.length,
+        savedAt: payload.savedAt,
+      },
+      "[SportsCache] Snapshot loaded — serving cached picks until live refresh succeeds",
+    );
+    return true;
+  } catch (err) {
+    logger.warn(
+      { err },
+      "[SportsCache] Failed to load snapshot — falling back to mock data",
+    );
+    return false;
+  }
 }
 
 // ─── Refresh logic ────────────────────────────────────────────────────────────
@@ -238,6 +385,7 @@ export async function refreshCache(): Promise<void> {
     state.livePicks = []; // The Odds API has no live-prop endpoint
     state.signals = {}; // clear mock live intel in real-data mode
     state.usingRealData = true;
+    state.source = "live";
     state.lastRefreshedAt = new Date();
     state.consecutiveFailures = 0; // reset back-off counter on success
 
@@ -250,6 +398,9 @@ export async function refreshCache(): Promise<void> {
       },
       "[SportsCache] Refresh complete",
     );
+
+    // Persist to disk so a restart during an outage can recover this data.
+    snapshotCache();
   } catch (err) {
     // Only on identifiable request failure do we retain the previous state.
     const msg = err instanceof Error ? err.message : String(err);
@@ -317,7 +468,13 @@ export function startScheduler(): void {
   const intervalMinutes = Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15");
   const intervalMs = intervalMinutes * 60 * 1000;
 
-  // Run immediately on start, then schedule repeating back-off loop.
+  // If the API key is configured, try to restore the last snapshot so users
+  // see real picks immediately while the first live refresh runs in the background.
+  if (isOddsApiEnabled()) {
+    loadSnapshot();
+  }
+
+  // Run a live refresh immediately, then schedule the back-off loop.
   void refreshCache().finally(() => {
     scheduleNextRefresh(intervalMs);
   });
@@ -369,6 +526,7 @@ export function getTickets(): CacheState["tickets"] {
 export function getCacheStatus(): {
   lastRefreshedAt: string | null;
   usingRealData: boolean;
+  source: CacheSource;
   isStale: boolean;
   consecutiveFailures: number;
   lastError: string | null;
@@ -376,6 +534,7 @@ export function getCacheStatus(): {
   return {
     lastRefreshedAt: state.lastRefreshedAt?.toISOString() ?? null,
     usingRealData: state.usingRealData,
+    source: state.source,
     isStale: isDataStale(),
     consecutiveFailures: state.consecutiveFailures,
     lastError: state.lastError,
