@@ -428,7 +428,7 @@ let schedulerHandle: ReturnType<typeof setTimeout> | null = null;
 let schedulerStarted = false;
 
 /**
- * Schedule the next refresh using exponential back-off on consecutive failures.
+ * Pure function — computes the back-off delay for a given failure count.
  *
  * Formula: delay = min(base × 2^(failures−1), base × 4)
  *   - 0 failures → base interval (normal cadence)
@@ -436,16 +436,20 @@ let schedulerStarted = false;
  *   - 2 failures → base × 2
  *   - 3 failures → base × 4 (capped)
  *   - 4+ failures → base × 4 (stays capped)
+ *
+ * Exported for unit testing — production code uses scheduleNextRefresh().
+ */
+export function computeBackoffDelay(baseMs: number, consecutiveFailures: number): number {
+  if (consecutiveFailures === 0) return baseMs;
+  return Math.min(baseMs * Math.pow(2, consecutiveFailures - 1), baseMs * 4);
+}
+
+/**
+ * Schedule the next refresh using exponential back-off on consecutive failures.
  */
 function scheduleNextRefresh(baseMs: number): void {
   const failures = state.consecutiveFailures;
-
-  let delay: number;
-  if (failures === 0) {
-    delay = baseMs;
-  } else {
-    delay = Math.min(baseMs * Math.pow(2, failures - 1), baseMs * 4);
-  }
+  const delay = computeBackoffDelay(baseMs, failures);
 
   if (failures > 0) {
     logger.warn(
@@ -539,6 +543,33 @@ export function getCacheStatus(): {
     consecutiveFailures: state.consecutiveFailures,
     lastError: state.lastError,
   };
+}
+
+// ─── Test helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Resets module-level state to its initial values.
+ * ONLY for use in test files — never call in production code.
+ */
+export function _resetStateForTesting(): void {
+  state.games = [];
+  state.picks = [];
+  state.liveGames = [];
+  state.livePicks = [];
+  state.signals = {};
+  state.tickets = [];
+  state.lastRefreshedAt = null;
+  state.usingRealData = false;
+  state.source = "mock";
+  state.isRefreshing = false;
+  state.lastError = null;
+  state.quotaRemaining = null;
+  state.consecutiveFailures = 0;
+  schedulerStarted = false;
+  if (schedulerHandle) {
+    clearTimeout(schedulerHandle);
+    schedulerHandle = null;
+  }
 }
 
 // ─── Compatibility aliases (used by main-branch route files) ─────────────────
