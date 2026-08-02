@@ -1,9 +1,11 @@
-import { useListPicks, useGetPicksSummary, useGetTopPicks, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey } from "@workspace/api-client-react";
+import { useListPicks, useGetPicksSummary, useGetTopPicks, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey, getListPicksQueryKey, getGetPicksSummaryQueryKey, getGetTopPicksQueryKey, useTriggerRefresh } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Activity, Target, AlertTriangle, CheckCircle2, TrendingUp, Trophy, ArrowRight, Crosshair } from "lucide-react";
+import { Activity, Target, AlertTriangle, CheckCircle2, TrendingUp, Trophy, ArrowRight, Crosshair, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 function RiskTierBadge({ tier }: { tier: string }) {
@@ -80,6 +82,7 @@ function PickCard({ pick }: { pick: any }) {
 export default function Dashboard() {
   const [filterSport, setFilterSport] = useState<string>("ALL");
   const [filterTier, setFilterTier] = useState<string>("ALL");
+  const queryClient = useQueryClient();
 
   const { data: summary, isLoading: loadingSummary } = useGetPicksSummary();
   const { data: picks, isLoading: loadingPicks } = useListPicks(
@@ -89,7 +92,24 @@ export default function Dashboard() {
     }
   );
   const { data: topPicks } = useGetTopPicks();
-  const { data: refreshStatus } = useGetGhostwatchStatus({ query: { refetchInterval: 60_000, queryKey: getGetGhostwatchStatusQueryKey() } });
+  const statusQueryKey = getGetGhostwatchStatusQueryKey();
+  const { data: refreshStatus } = useGetGhostwatchStatus({ query: { refetchInterval: 60_000, queryKey: statusQueryKey } });
+
+  const { mutate: doRefresh, isPending: isRefreshing } = useTriggerRefresh({
+    mutation: {
+      onSuccess: () => {
+        // The server starts the refresh async; allow 3s for it to complete, then
+        // refetch all data rendered on this page so users see the updated picks immediately.
+        setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: statusQueryKey });
+          void queryClient.invalidateQueries({ queryKey: getGetPicksSummaryQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetTopPicksQueryKey() });
+          // Picks query key includes filter params — invalidate by prefix to cover all variants
+          void queryClient.invalidateQueries({ queryKey: getListPicksQueryKey() });
+        }, 3000);
+      },
+    },
+  });
 
   return (
     <div className="flex-1 flex flex-col">
@@ -114,11 +134,26 @@ export default function Dashboard() {
                   DEMO DATA
                 </Badge>
               )}
-              {refreshStatus?.lastRefreshedAt && (
+              {refreshStatus?.lastRefreshedAt ? (
                 <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1">
                   REFRESHED: <span className="text-primary ml-2">{new Date(refreshStatus.lastRefreshedAt).toLocaleTimeString()}</span>
                 </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1 text-muted-foreground">
+                  NEVER REFRESHED
+                </Badge>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="font-mono text-xs h-7 gap-1.5 border-border/60 hover:border-primary/50 hover:text-primary"
+                disabled={isRefreshing || !refreshStatus?.usingRealData}
+                onClick={() => doRefresh()}
+                title={!refreshStatus?.usingRealData ? "Refresh unavailable in demo mode" : "Fetch latest picks from The Odds API"}
+              >
+                <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                {isRefreshing ? "REFRESHING…" : "REFRESH NOW"}
+              </Button>
             </div>
           </div>
 

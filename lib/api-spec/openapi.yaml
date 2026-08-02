@@ -336,6 +336,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/PicksRefreshStatus"
 
+  /ghostwatch/refresh:
+    post:
+      operationId: triggerRefresh
+      tags: [ghostwatch]
+      summary: Trigger an immediate cache refresh from The Odds API
+      responses:
+        "200":
+          description: Refresh started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshStartedResponse"
+        "400":
+          description: API key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   # ─── Ghost Express Live In-Game ────────────────────────────────────────────
   /ghost-express/live-picks:
     get:
@@ -546,6 +565,12 @@ components:
         lastRefreshedAt:
           type: ["string", "null"]
           description: ISO 8601 timestamp of the most recent successful refresh, or null if never refreshed
+
+    RefreshStartedResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
 
     # ─── Auth ─────────────────────────────────────────────────────────────────
     AuthUser:

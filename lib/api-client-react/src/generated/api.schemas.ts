@@ -19,6 +19,10 @@ export interface PicksRefreshStatus {
   lastRefreshedAt?: string | null;
 }
 
+export interface RefreshStartedResponse {
+  status: string;
+}
+
 export interface AuthUser {
   id: string;
   /** @nullable */

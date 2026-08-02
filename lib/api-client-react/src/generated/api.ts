@@ -48,6 +48,7 @@ import type {
   OpenaiMessageInput,
   Pick,
   PicksRefreshStatus,
+  RefreshStartedResponse,
   PicksSummary,
   PlayerSocialScore,
   Signal,
@@ -1472,6 +1473,41 @@ export function useGetGhostwatchStatus<TData = Awaited<ReturnType<typeof getGhos
 }
 
 
+/**
+ * @summary Trigger an immediate cache refresh from The Odds API
+ */
+export const getPostGhostwatchRefreshUrl = () => `/api/ghostwatch/refresh`;
+
+export const triggerRefresh = async (options?: Parameters<typeof customFetch>[1]): Promise<RefreshStartedResponse> => {
+  return customFetch<RefreshStartedResponse>(getPostGhostwatchRefreshUrl(), {
+    ...options,
+    method: 'POST',
+  });
+};
+
+export const getTriggerRefreshMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext>, request?: SecondParameter<typeof customFetch> }
+): UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext> => {
+  const { mutation: mutationOptions, request: requestOptions } = options ?? {};
+  const mutationKey = ['triggerRefresh'];
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerRefresh>>, void> = () => {
+    return triggerRefresh(requestOptions);
+  };
+  return { mutationKey, mutationFn, ...mutationOptions };
+};
+
+export type TriggerRefreshMutationResult = NonNullable<Awaited<ReturnType<typeof triggerRefresh>>>;
+export type TriggerRefreshMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Trigger an immediate cache refresh from The Odds API
+ */
+export function useTriggerRefresh<TError = ErrorType<unknown>, TContext = unknown>(
+  options?: { mutation?: UseMutationOptions<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext>, request?: SecondParameter<typeof customFetch> }
+): UseMutationResult<Awaited<ReturnType<typeof triggerRefresh>>, TError, void, TContext> {
+  const mutationOptions = getTriggerRefreshMutationOptions(options);
+  return useMutation(mutationOptions);
+}
 
 
 
