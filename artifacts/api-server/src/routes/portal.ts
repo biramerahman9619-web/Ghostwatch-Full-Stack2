@@ -1,7 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { db, guestSubscribersTable } from "@workspace/db";
+import { desc } from "drizzle-orm";
 import { getPicks } from "../lib/sportsCache.js";
 import { logger } from "../lib/logger.js";
+import { isOperator } from "../lib/operatorAuth.js";
 import { isSmtpConfigured, getTransport } from "../lib/emailTransport.js";
 import { buildWelcomeEmailHtml, buildWelcomeEmailText } from "../lib/emailTemplate.js";
 import {
@@ -68,6 +70,58 @@ router.post("/portal/subscribe", async (req: Request, res: Response) => {
     }
   } else {
     logger.debug({ email: normalizedEmail }, "[Portal] SMTP not configured — skipping welcome email");
+  }
+});
+
+// ─── GET /portal/subscribers (authenticated — operator view) ─────────────────
+
+router.get("/portal/subscribers", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (!isOperator(req)) {
+    res.status(403).json({ error: "Operator access required" });
+    return;
+  }
+
+  try {
+    // Fetch all subscribers ordered newest-first so we can build both recent list and sparkline
+    const rows = await db
+      .select()
+      .from(guestSubscribersTable)
+      .orderBy(desc(guestSubscribersTable.createdAt));
+
+    const total = rows.length;
+
+    // Build daily counts for the past 7 days
+    const now = new Date();
+    const dailyCounts: Array<{ date: string; count: number }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD
+      const count = rows.filter(
+        (r) => r.createdAt.toISOString().slice(0, 10) === dateStr
+      ).length;
+      dailyCounts.push({ date: dateStr, count });
+    }
+
+    const last7Days = dailyCounts.reduce((s, d) => s + d.count, 0);
+
+    // Recent 10 entries for the operator table
+    const recent = rows.slice(0, 10).map((r) => ({
+      id: r.id,
+      email: r.email,
+      name: r.name ?? null,
+      source: r.source,
+      createdAt: r.createdAt.toISOString(),
+    }));
+
+    res.json({ total, last7Days, dailyCounts, recent });
+  } catch (err) {
+    logger.error({ err }, "[Portal] Subscribers query failed");
+    res.status(500).json({ error: "Failed to fetch subscribers" });
   }
 });
 

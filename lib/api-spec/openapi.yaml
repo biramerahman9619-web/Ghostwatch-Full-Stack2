@@ -556,6 +556,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/PortalStats"
 
+  /portal/subscribers:
+    get:
+      operationId: getPortalSubscribers
+      tags: [portal]
+      summary: Operator view — subscriber counts and recent sign-ups (requires auth)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Subscriber analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalSubscribersResponse"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   # ─── User Settings ─────────────────────────────────────────────────────────
   /settings:
     get:
@@ -998,3 +1019,35 @@ components:
         sportsLive: { type: number }
         subscribers: { type: number }
         avgConfidence: { type: number }
+
+    PortalDailyCount:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string }
+        count: { type: number }
+
+    PortalRecentSubscriber:
+      type: object
+      required: [id, email, createdAt, source]
+      properties:
+        id: { type: number }
+        email: { type: string }
+        name: { type: ["string", "null"] }
+        source: { type: string }
+        createdAt: { type: string }
+
+    PortalSubscribersResponse:
+      type: object
+      required: [total, last7Days, dailyCounts, recent]
+      properties:
+        total: { type: number }
+        last7Days: { type: number }
+        dailyCounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortalDailyCount"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortalRecentSubscriber"
