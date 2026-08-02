@@ -13,9 +13,22 @@
  *   - livePicks and signals are always cleared when usingRealData is set.
  *   - Mock data is only served when THE_ODDS_API_KEY is not configured.
  *
+ * Staleness:
+ *   - Data is considered stale when:
+ *       (a) THE_ODDS_API_KEY is not set (always stale / demo mode), or
+ *       (b) API key is set but we have never successfully refreshed, or
+ *       (c) the last successful refresh is older than PICKS_STALENESS_MINUTES.
+ *   - PICKS_STALENESS_MINUTES defaults to 45 (3× the 15-min refresh interval).
+ *
+ * Exponential back-off:
+ *   - On consecutive refresh failures the scheduler backs off:
+ *       delay = min(base × 2^(failures−1), base × 4)   (max = 4× base interval)
+ *   - Resets to the base interval after the first successful refresh.
+ *
  * Environment variables:
- *   THE_ODDS_API_KEY              — The Odds API key (required for real data)
+ *   THE_ODDS_API_KEY               — The Odds API key (required for real data)
  *   PICKS_REFRESH_INTERVAL_MINUTES — How often to refresh (default: 15)
+ *   PICKS_STALENESS_MINUTES        — Age at which data is declared stale (default: 45)
  */
 
 import {
@@ -60,6 +73,7 @@ interface CacheState {
   isRefreshing: boolean;
   lastError: string | null;
   quotaRemaining: number | null;
+  consecutiveFailures: number;
 }
 
 const state: CacheState = {
@@ -74,6 +88,7 @@ const state: CacheState = {
   isRefreshing: false,
   lastError: null,
   quotaRemaining: null,
+  consecutiveFailures: 0,
 };
 
 // ─── API key helpers ──────────────────────────────────────────────────────────
@@ -85,6 +100,25 @@ export function isOddsApiEnabled(): boolean {
 
 /** Alias for callers using the main-branch naming convention. */
 export const isApiConfigured = isOddsApiEnabled;
+
+// ─── Staleness ────────────────────────────────────────────────────────────────
+
+function getStalenessMs(): number {
+  return Number(process.env["PICKS_STALENESS_MINUTES"] ?? "45") * 60 * 1000;
+}
+
+/**
+ * Returns true when the cache data should not be trusted for betting decisions:
+ *   - API key not configured (demo mode, always stale)
+ *   - API key set but never successfully refreshed
+ *   - Last successful refresh is older than PICKS_STALENESS_MINUTES
+ */
+export function isDataStale(): boolean {
+  if (!isOddsApiEnabled()) return true;
+  if (!state.usingRealData) return true;
+  if (!state.lastRefreshedAt) return true;
+  return Date.now() - state.lastRefreshedAt.getTime() > getStalenessMs();
+}
 
 // ─── Refresh logic ────────────────────────────────────────────────────────────
 
@@ -205,6 +239,7 @@ export async function refreshCache(): Promise<void> {
     state.signals = {}; // clear mock live intel in real-data mode
     state.usingRealData = true;
     state.lastRefreshedAt = new Date();
+    state.consecutiveFailures = 0; // reset back-off counter on success
 
     logger.info(
       {
@@ -219,7 +254,11 @@ export async function refreshCache(): Promise<void> {
     // Only on identifiable request failure do we retain the previous state.
     const msg = err instanceof Error ? err.message : String(err);
     state.lastError = msg;
-    logger.error({ err }, "[SportsCache] Refresh failed — retaining previous data");
+    state.consecutiveFailures += 1;
+    logger.error(
+      { err, consecutiveFailures: state.consecutiveFailures },
+      "[SportsCache] Refresh failed — retaining previous data",
+    );
   } finally {
     state.isRefreshing = false;
   }
@@ -231,21 +270,57 @@ export async function refreshSportsData(force = false): Promise<void> {
   return refreshCache();
 }
 
-// ─── Scheduler ────────────────────────────────────────────────────────────────
+// ─── Scheduler (setTimeout-based with exponential back-off) ──────────────────
 
-let schedulerHandle: ReturnType<typeof setInterval> | null = null;
+let schedulerHandle: ReturnType<typeof setTimeout> | null = null;
+/** Prevents double-start when both app.ts and index.ts call startScheduler(). */
+let schedulerStarted = false;
+
+/**
+ * Schedule the next refresh using exponential back-off on consecutive failures.
+ *
+ * Formula: delay = min(base × 2^(failures−1), base × 4)
+ *   - 0 failures → base interval (normal cadence)
+ *   - 1 failure  → base × 1
+ *   - 2 failures → base × 2
+ *   - 3 failures → base × 4 (capped)
+ *   - 4+ failures → base × 4 (stays capped)
+ */
+function scheduleNextRefresh(baseMs: number): void {
+  const failures = state.consecutiveFailures;
+
+  let delay: number;
+  if (failures === 0) {
+    delay = baseMs;
+  } else {
+    delay = Math.min(baseMs * Math.pow(2, failures - 1), baseMs * 4);
+  }
+
+  if (failures > 0) {
+    logger.warn(
+      { consecutiveFailures: failures, nextRetryMs: delay, nextRetryMins: Math.round(delay / 60_000) },
+      "[SportsCache] Back-off retry scheduled after failure",
+    );
+  }
+
+  schedulerHandle = setTimeout(() => {
+    void refreshCache().finally(() => {
+      scheduleNextRefresh(baseMs);
+    });
+  }, delay);
+}
 
 export function startScheduler(): void {
-  if (schedulerHandle) return; // already running
+  if (schedulerStarted) return; // already running (guard covers the in-flight initial refresh)
+  schedulerStarted = true;
 
   const intervalMinutes = Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15");
   const intervalMs = intervalMinutes * 60 * 1000;
 
-  void refreshCache(); // run immediately on start
-
-  schedulerHandle = setInterval(() => {
-    void refreshCache();
-  }, intervalMs);
+  // Run immediately on start, then schedule repeating back-off loop.
+  void refreshCache().finally(() => {
+    scheduleNextRefresh(intervalMs);
+  });
 
   logger.info(
     { intervalMinutes, oddsApiEnabled: isOddsApiEnabled() },
@@ -257,8 +332,9 @@ export function startScheduler(): void {
 export const startAutoRefresh = startScheduler;
 
 export function stopScheduler(): void {
+  schedulerStarted = false;
   if (schedulerHandle) {
-    clearInterval(schedulerHandle);
+    clearTimeout(schedulerHandle);
     schedulerHandle = null;
   }
 }
@@ -289,11 +365,20 @@ export function getTickets(): CacheState["tickets"] {
   return state.tickets;
 }
 
-/** Provenance status for the /ghostwatch/status endpoint. */
-export function getCacheStatus(): { lastRefreshedAt: string | null; usingRealData: boolean } {
+/** Provenance + staleness status — used by /ghostwatch/status and /healthz. */
+export function getCacheStatus(): {
+  lastRefreshedAt: string | null;
+  usingRealData: boolean;
+  isStale: boolean;
+  consecutiveFailures: number;
+  lastError: string | null;
+} {
   return {
     lastRefreshedAt: state.lastRefreshedAt?.toISOString() ?? null,
     usingRealData: state.usingRealData,
+    isStale: isDataStale(),
+    consecutiveFailures: state.consecutiveFailures,
+    lastError: state.lastError,
   };
 }
 
