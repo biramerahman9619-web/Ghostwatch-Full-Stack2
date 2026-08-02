@@ -1,9 +1,11 @@
-import { useListLiveGames, useListLivePicks, useListSignals, getListLivePicksQueryKey } from "@workspace/api-client-react";
+import { useListLiveGames, useListLivePicks, useListSignals, getListLivePicksQueryKey, getListLiveGamesQueryKey, useGetGhostwatchStatus, getGetGhostwatchStatusQueryKey, useTriggerRefresh } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Clock, Zap, Gauge, AlertCircle, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Activity, Clock, Zap, Gauge, AlertCircle, ArrowRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 function SignalBadge({ type, strength }: { type: string, strength: string }) {
   let color = "bg-primary text-primary-foreground";
@@ -77,6 +79,7 @@ function LivePickRow({ pick }: { pick: any }) {
 export default function GhostExpress() {
   const { data: games, isLoading: loadingGames } = useListLiveGames();
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const activeGameId = selectedGameId || (games?.[0]?.id ?? null);
   const livePicksParams = { gameId: activeGameId || undefined };
@@ -85,15 +88,62 @@ export default function GhostExpress() {
     { query: { enabled: !!activeGameId, queryKey: getListLivePicksQueryKey(livePicksParams) } }
   );
 
+  const statusQueryKey = getGetGhostwatchStatusQueryKey();
+  const { data: refreshStatus } = useGetGhostwatchStatus({
+    query: { refetchInterval: 60_000, queryKey: statusQueryKey },
+  });
+
+  const { mutate: doRefresh, isPending: isRefreshing } = useTriggerRefresh({
+    mutation: {
+      onSuccess: () => {
+        // Allow 3s for the async refresh to complete, then refetch all data on this page.
+        setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: statusQueryKey });
+          void queryClient.invalidateQueries({ queryKey: getListLiveGamesQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getListLivePicksQueryKey() });
+        }, 3000);
+      },
+    },
+  });
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <header className="border-b border-border bg-card p-6 flex-shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <Activity className="w-6 h-6 text-primary" />
-            Ghost Express
-          </h1>
-          <p className="text-sm text-muted-foreground font-mono mt-1">Live In-Game Signals & Adjustments</p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Activity className="w-6 h-6 text-primary" />
+              Ghost Express
+            </h1>
+            <p className="text-sm text-muted-foreground font-mono mt-1">Live In-Game Signals & Adjustments</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {refreshStatus?.usingRealData ? (
+              <Badge variant="safe" className="font-mono text-xs px-3 py-1">LIVE DATA</Badge>
+            ) : (
+              <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1 text-muted-foreground">DEMO DATA</Badge>
+            )}
+            {refreshStatus?.lastRefreshedAt ? (
+              <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1">
+                UPDATED: <span className="text-primary ml-2">{new Date(refreshStatus.lastRefreshedAt).toLocaleTimeString()}</span>
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-secondary/50 font-mono text-xs px-3 py-1 text-muted-foreground">
+                NEVER REFRESHED
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="font-mono text-xs h-7 gap-1.5 border-border/60 hover:border-primary/50 hover:text-primary"
+              disabled={isRefreshing || !refreshStatus?.usingRealData}
+              onClick={() => doRefresh()}
+              title={!refreshStatus?.usingRealData ? "Refresh unavailable in demo mode" : "Fetch latest picks from The Odds API"}
+            >
+              <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+              {isRefreshing ? "REFRESHING…" : "REFRESH NOW"}
+            </Button>
+          </div>
         </div>
       </header>
 
