@@ -512,6 +512,52 @@ export const EvaluateAgentTicketsResponse = zod.object({
 
 
 /**
+ * @summary All picks from today's tickets enriched with live game status and manual result
+ */
+export const ListPickResultsResponseItem = zod.object({
+  "pickId": zod.string(),
+  "playerName": zod.string(),
+  "team": zod.string(),
+  "sport": zod.string(),
+  "propType": zod.string(),
+  "line": zod.number(),
+  "direction": zod.enum(['Over', 'Under']),
+  "confidence": zod.number(),
+  "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive']),
+  "commenceTime": zod.string().nullish(),
+  "gameStatus": zod.enum(['Live', 'Halftime', 'Final', 'Upcoming', 'Unknown']),
+  "homeTeam": zod.string(),
+  "awayTeam": zod.string(),
+  "homeScore": zod.number().nullish(),
+  "awayScore": zod.number().nullish(),
+  "quarter": zod.string().nullish(),
+  "timeRemaining": zod.string().nullish(),
+  "result": zod.enum(['hit', 'miss', 'push', 'null']).nullish(),
+  "settledValue": zod.string().nullish(),
+  "settledSource": zod.enum(['espn', 'manual', 'null']).nullish(),
+  "ticketIds": zod.array(zod.string())
+})
+export const ListPickResultsResponse = zod.array(ListPickResultsResponseItem)
+
+
+/**
+ * @summary Manually settle a pick as hit / miss / push (or clear it with null)
+ */
+export const SettlePickResultParams = zod.object({
+  "pickId": zod.coerce.string()
+})
+
+export const SettlePickResultBody = zod.object({
+  "result": zod.enum(['hit', 'miss', 'push']).nullable()
+})
+
+export const SettlePickResultResponse = zod.object({
+  "pickId": zod.string(),
+  "result": zod.enum(['hit', 'miss', 'push']).nullish()
+})
+
+
+/**
  * @summary Send a command to the agent — streams an SSE reply and executes the action
  */
 export const SendAgentChatBody = zod.object({

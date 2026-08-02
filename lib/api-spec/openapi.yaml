@@ -522,6 +522,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentTicketEvaluations"
 
+  /ghostspere/pick-results:
+    get:
+      operationId: listPickResults
+      tags: [ghostspere]
+      summary: All picks from today's tickets enriched with live game status and manual result
+      responses:
+        "200":
+          description: Enriched picks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PickWithResult"
+
+  /ghostspere/pick-results/{pickId}:
+    post:
+      operationId: settlePickResult
+      tags: [ghostspere]
+      summary: Manually settle a pick as hit / miss / push (or clear it with null)
+      parameters:
+        - name: pickId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettlePickInput"
+      responses:
+        "200":
+          description: Settled result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlePickResponse"
+
   /ghostspere/agent/chat:
     post:
       operationId: sendAgentChat
@@ -1070,6 +1109,53 @@ components:
       required: [message]
       properties:
         message: { type: string }
+
+    PickWithResult:
+      type: object
+      required: [pickId, playerName, team, sport, propType, line, direction, confidence, riskTier, gameStatus, homeTeam, awayTeam, ticketIds]
+      properties:
+        pickId: { type: string }
+        playerName: { type: string }
+        team: { type: string }
+        sport: { type: string }
+        propType: { type: string }
+        line: { type: number }
+        direction: { type: string, enum: [Over, Under] }
+        confidence: { type: number }
+        riskTier: { type: string, enum: [Safe, Balanced, Aggressive] }
+        commenceTime: { type: ["string", "null"] }
+        gameStatus: { type: string, enum: [Live, Halftime, Final, Upcoming, Unknown] }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        homeScore: { type: ["number", "null"] }
+        awayScore: { type: ["number", "null"] }
+        quarter: { type: ["string", "null"] }
+        timeRemaining: { type: ["string", "null"] }
+        result: { type: ["string", "null"], enum: [hit, miss, push, "null"] }
+        settledValue: { type: ["string", "null"] }
+        settledSource: { type: ["string", "null"], enum: [espn, manual, "null"] }
+        ticketIds:
+          type: array
+          items: { type: string }
+
+    SettlePickInput:
+      type: object
+      required: [result]
+      properties:
+        result:
+          nullable: true
+          type: string
+          enum: [hit, miss, push]
+
+    SettlePickResponse:
+      type: object
+      required: [pickId]
+      properties:
+        pickId: { type: string }
+        result:
+          nullable: true
+          type: string
+          enum: [hit, miss, push]
 
     # ─── Ghostobservation ────────────────────────────────────────────────────
     SocialAlert:

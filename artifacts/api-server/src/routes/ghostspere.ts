@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { isSmtpConfigured, getTransport } from "../lib/emailTransport.js";
-import { eq, isNull, desc } from "drizzle-orm";
-import { db, userSettingsTable, ghostspereAgentConfig, ghostspereAgentLog } from "@workspace/db";
+import { eq, isNull, desc, and, or } from "drizzle-orm";
+import { db, userSettingsTable, ghostspereAgentConfig, ghostspereAgentLog, pickResultsTable } from "@workspace/db";
 import {
   ListTicketsQueryParams,
   ListTicketsResponse,
@@ -15,7 +15,8 @@ import {
   EvaluateAgentTicketsResponse,
   SendAgentChatBody,
 } from "@workspace/api-zod";
-import { getPicks } from "../lib/sportsCache.js";
+import { getPicks, getGames, getLiveGames } from "../lib/sportsCache.js";
+import { autoSettlePick } from "../lib/espnStats.js";
 import { buildTicketsFromPicks, resolveTickets } from "../lib/picksEngine.js";
 import { buildEmailHtml, buildEmailText } from "../lib/emailTemplate.js";
 import { logger } from "../lib/logger.js";
@@ -427,6 +428,194 @@ router.post("/ghostspere/agent/chat", async (req, res): Promise<void> => {
 
   res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   res.end();
+});
+
+// ─── Pick results: enriched picks with live game status ───────────────────────
+
+router.get("/ghostspere/pick-results", async (req, res): Promise<void> => {
+  const userId = req.isAuthenticated() ? req.user.id : null;
+  const settingsFilter = userId ? eq(userSettingsTable.userId, userId) : isNull(userSettingsTable.userId);
+
+  // Load user settings
+  let picksPerTicket = 3;
+  let riskProfile: "Safe" | "Balanced" | "Aggressive" | "Mixed" = "Balanced";
+  let entryType: "PowerPlay" | "FlexPlay" = "PowerPlay";
+  const settingsRows = await db
+    .select({ picksPerTicket: userSettingsTable.picksPerTicket, riskProfile: userSettingsTable.riskProfile, entryType: userSettingsTable.entryType })
+    .from(userSettingsTable).where(settingsFilter).limit(1);
+  if (settingsRows[0]) {
+    if (settingsRows[0].picksPerTicket) picksPerTicket = Math.min(6, Math.max(2, Number(settingsRows[0].picksPerTicket)));
+    if (settingsRows[0].riskProfile) riskProfile = settingsRows[0].riskProfile as typeof riskProfile;
+    if (settingsRows[0].entryType) entryType = settingsRows[0].entryType as typeof entryType;
+  }
+
+  // Build tickets and deduplicate picks across them
+  const picks = getPicks();
+  const tickets = buildTicketsFromPicks(picks, picksPerTicket, riskProfile, entryType);
+
+  // Build lookup maps from game cache
+  const allGames = getGames();
+  const liveGames = getLiveGames();
+  const liveMap = new Map(liveGames.map((g) => [g.id, g]));
+  const gameMap = new Map(allGames.map((g) => [g.id, g]));
+
+  // Load saved results for this user (includes ESPN auto-settled)
+  const savedResults = userId
+    ? await db.select().from(pickResultsTable).where(eq(pickResultsTable.userId, userId))
+    : await db.select().from(pickResultsTable).where(isNull(pickResultsTable.userId));
+  const resultMap = new Map(savedResults.map((r) => [r.pickId, r]));
+
+  // Deduplicate picks across tickets
+  const pickMap = new Map<string, {
+    pickId: string; playerName: string; team: string; sport: string; propType: string;
+    line: number; direction: "Over" | "Under"; confidence: number; riskTier: string;
+    commenceTime: string | null; gameStatus: string; homeTeam: string; awayTeam: string;
+    homeScore: number | null; awayScore: number | null; quarter: string | null;
+    timeRemaining: string | null; result: "hit" | "miss" | "push" | null;
+    settledValue: string | null; settledSource: string | null;
+    ticketIds: string[];
+  }>();
+
+  for (const ticket of tickets) {
+    for (const pick of ticket.picks) {
+      const existing = pickMap.get(pick.id);
+      if (existing) {
+        if (!existing.ticketIds.includes(ticket.id)) existing.ticketIds.push(ticket.id);
+        continue;
+      }
+      const live = pick.gameId ? liveMap.get(pick.gameId) : undefined;
+      const scheduled = pick.gameId ? gameMap.get(pick.gameId) : undefined;
+
+      let gameStatus = "Upcoming";
+      if (live) {
+        gameStatus = live.status;
+      } else if (scheduled?.status) {
+        gameStatus = scheduled.status === "Scheduled" ? "Upcoming" : scheduled.status;
+      }
+
+      const saved = resultMap.get(pick.id);
+      pickMap.set(pick.id, {
+        pickId: pick.id,
+        playerName: pick.playerName,
+        team: pick.team,
+        sport: pick.sport,
+        propType: pick.propType,
+        line: pick.line,
+        direction: pick.direction,
+        confidence: pick.confidence,
+        riskTier: pick.riskTier,
+        commenceTime: pick.commenceTime ?? null,
+        gameStatus,
+        homeTeam: live?.homeTeam ?? scheduled?.homeTeam ?? pick.team,
+        awayTeam: live?.awayTeam ?? scheduled?.awayTeam ?? pick.opponent,
+        homeScore: live?.homeScore ?? scheduled?.homeScore ?? null,
+        awayScore: live?.awayScore ?? scheduled?.awayScore ?? null,
+        quarter: live?.quarter ?? null,
+        timeRemaining: live?.timeRemaining ?? null,
+        result: (saved?.result as "hit" | "miss" | "push" | null) ?? null,
+        settledValue: saved?.settledValue ?? null,
+        settledSource: saved?.settledSource ?? null,
+        ticketIds: [ticket.id],
+      });
+    }
+  }
+
+  // Auto-settle Final picks that have no result yet (async, fire & collect)
+  const finalUnsettled = Array.from(pickMap.values()).filter(
+    (p) => p.gameStatus === "Final" && p.result === null,
+  );
+
+  if (finalUnsettled.length > 0) {
+    // Run ESPN auto-settle concurrently but cap at 6 at a time
+    const BATCH = 6;
+    for (let i = 0; i < finalUnsettled.length; i += BATCH) {
+      const batch = finalUnsettled.slice(i, i + BATCH);
+      await Promise.allSettled(
+        batch.map(async (p) => {
+          try {
+            const settled = await autoSettlePick({
+              playerName: p.playerName,
+              sport: p.sport,
+              propType: p.propType,
+              line: p.line,
+              direction: p.direction,
+              homeTeam: p.homeTeam,
+              awayTeam: p.awayTeam,
+              commenceTime: p.commenceTime,
+            });
+            if (!settled) return;
+
+            // Persist to DB (insert or update, unique per user+pick)
+            const existingRow = await db.select({ id: pickResultsTable.id })
+              .from(pickResultsTable)
+              .where(
+                userId
+                  ? and(eq(pickResultsTable.userId, userId), eq(pickResultsTable.pickId, p.pickId))
+                  : and(isNull(pickResultsTable.userId), eq(pickResultsTable.pickId, p.pickId)),
+              )
+              .limit(1);
+
+            if (existingRow.length > 0) {
+              await db.update(pickResultsTable)
+                .set({ result: settled.result, settledValue: String(settled.actualValue), settledSource: "espn", settledAt: new Date() })
+                .where(eq(pickResultsTable.id, existingRow[0].id));
+            } else {
+              await db.insert(pickResultsTable).values({
+                userId,
+                pickId: p.pickId,
+                result: settled.result,
+                settledValue: String(settled.actualValue),
+                settledSource: "espn",
+              });
+            }
+
+            // Update the in-memory map for the response
+            p.result = settled.result;
+            p.settledValue = String(settled.actualValue);
+            p.settledSource = "espn";
+          } catch (_err) {
+            // silent — ESPN settle is best-effort
+          }
+        }),
+      );
+    }
+  }
+
+  res.json(Array.from(pickMap.values()));
+});
+
+// ─── Settle a pick result manually (requires auth) ────────────────────────────
+
+router.post("/ghostspere/pick-results/:pickId", async (req, res): Promise<void> => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const { pickId } = req.params;
+  const { result } = req.body as { result: "hit" | "miss" | "push" | null };
+
+  if (result !== null && !["hit", "miss", "push"].includes(result)) {
+    res.status(400).json({ error: "result must be 'hit', 'miss', 'push', or null" });
+    return;
+  }
+
+  if (result === null) {
+    await db.delete(pickResultsTable)
+      .where(and(eq(pickResultsTable.userId, userId), eq(pickResultsTable.pickId, pickId)));
+  } else {
+    const existing = await db.select({ id: pickResultsTable.id })
+      .from(pickResultsTable)
+      .where(and(eq(pickResultsTable.userId, userId), eq(pickResultsTable.pickId, pickId)))
+      .limit(1);
+    if (existing.length > 0) {
+      await db.update(pickResultsTable)
+        .set({ result, settledAt: new Date() })
+        .where(and(eq(pickResultsTable.userId, userId), eq(pickResultsTable.pickId, pickId)));
+    } else {
+      await db.insert(pickResultsTable).values({ userId, pickId, result });
+    }
+  }
+
+  res.json({ pickId, result });
 });
 
 export default router;

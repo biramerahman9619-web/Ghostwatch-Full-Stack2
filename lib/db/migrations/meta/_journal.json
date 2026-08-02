@@ -15,6 +15,20 @@
       "when": 1785694000000,
       "tag": "0001_ghostspere_agent_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785780000000,
+      "tag": "0002_pick_results",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785866400000,
+      "tag": "0003_pick_results_v2",
+      "breakpoints": true
     }
   ]
 }

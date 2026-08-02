@@ -53,6 +53,7 @@ import type {
   OpenaiMessage,
   OpenaiMessageInput,
   Pick,
+  PickWithResult,
   PicksRefreshStatus,
   PicksSummary,
   PlayerSocialScore,
@@ -62,6 +63,8 @@ import type {
   PortalSubscribeResult,
   PortalSubscribersResponse,
   RefreshStartedResponse,
+  SettlePickInput,
+  SettlePickResponse,
   Signal,
   SocialAlert,
   TeamPulse,
@@ -2331,6 +2334,155 @@ export const useEvaluateAgentTickets = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getEvaluateAgentTicketsMutationOptions(options));
+    }
+
+export const getListPickResultsUrl = () => {
+
+
+
+
+  return `/api/ghostspere/pick-results`
+}
+
+/**
+ * @summary All picks from today's tickets enriched with live game status and manual result
+ */
+export const listPickResults = async ( options?: Parameters<typeof customFetch>[1]): Promise<PickWithResult[]> => {
+
+  return customFetch<PickWithResult[]>(getListPickResultsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPickResultsQueryKey = () => {
+    return [
+    `/api/ghostspere/pick-results`
+    ] as const;
+    }
+
+
+export const getListPickResultsQueryOptions = <TData = Awaited<ReturnType<typeof listPickResults>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPickResults>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPickResultsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPickResults>>> = ({ signal }) => listPickResults({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPickResults>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPickResultsQueryResult = NonNullable<Awaited<ReturnType<typeof listPickResults>>>
+export type ListPickResultsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary All picks from today's tickets enriched with live game status and manual result
+ */
+
+export function useListPickResults<TData = Awaited<ReturnType<typeof listPickResults>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPickResults>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPickResultsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSettlePickResultUrl = (pickId: string,) => {
+
+
+
+
+  return `/api/ghostspere/pick-results/${pickId}`
+}
+
+/**
+ * @summary Manually settle a pick as hit / miss / push (or clear it with null)
+ */
+export const settlePickResult = async (pickId: string,
+    settlePickInput: SettlePickInput, options?: Parameters<typeof customFetch>[1]): Promise<SettlePickResponse> => {
+
+  return customFetch<SettlePickResponse>(getSettlePickResultUrl(pickId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(settlePickInput)
+  }
+);}
+
+
+
+
+
+export const getSettlePickResultMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof settlePickResult>>, TError,{pickId: string;data: BodyType<SettlePickInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof settlePickResult>>, TError,{pickId: string;data: BodyType<SettlePickInput>}, TContext> => {
+
+const mutationKey = ['settlePickResult'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof settlePickResult>>, {pickId: string;data: BodyType<SettlePickInput>}> = (props) => {
+          const {pickId,data} = props ?? {};
+
+          return  settlePickResult(pickId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SettlePickResultMutationResult = NonNullable<Awaited<ReturnType<typeof settlePickResult>>>
+    export type SettlePickResultMutationBody = BodyType<SettlePickInput>
+    export type SettlePickResultMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Manually settle a pick as hit / miss / push (or clear it with null)
+ */
+export const useSettlePickResult = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof settlePickResult>>, TError,{pickId: string;data: BodyType<SettlePickInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof settlePickResult>>,
+        TError,
+        {pickId: string;data: BodyType<SettlePickInput>},
+        TContext
+      > => {
+      return useMutation(getSettlePickResultMutationOptions(options));
     }
 
 export const getSendAgentChatUrl = () => {
