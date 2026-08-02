@@ -553,15 +553,24 @@ async function oddsGet<T>(path: string, params: Record<string, string> = {}): Pr
       signal: AbortSignal.timeout(10_000),
     });
 
+    // Always capture quota from response headers, even on error responses,
+    // so the adaptive scheduler can read them via getQuotaStats().
+    const captureQuota = (r: Response) => {
+      const rem = r.headers.get("x-requests-remaining");
+      if (rem !== null) {
+        remainingRequests = parseInt(rem, 10);
+        process.env["_ODDS_QUOTA_REMAINING"] = rem;
+      }
+      const used = r.headers.get("x-requests-used");
+      if (used !== null) remainingCredits = parseInt(used, 10);
+    };
+
     if (!res.ok) {
-      // Log remaining quota for debugging
-      const remaining = res.headers.get("x-requests-remaining");
-      if (remaining !== null) process.env["_ODDS_QUOTA_REMAINING"] = remaining;
+      captureQuota(res);
       throw new Error(`Odds API ${res.status}: ${await res.text()}`);
     }
 
-    const remaining = res.headers.get("x-requests-remaining");
-    if (remaining !== null) process.env["_ODDS_QUOTA_REMAINING"] = remaining;
+    captureQuota(res);
 
     return (await res.json()) as T;
   } catch (err) {

@@ -124,7 +124,7 @@ export default function Dashboard() {
               </h1>
               <p className="text-sm text-muted-foreground font-mono mt-1">Real-time AI projections & market mismatches</p>
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap justify-end">
               {refreshStatus?.usingRealData ? (
                 <Badge variant="safe" className="font-mono text-xs px-3 py-1">
                   LIVE DATA
@@ -143,6 +143,65 @@ export default function Dashboard() {
                   NEVER REFRESHED
                 </Badge>
               )}
+
+              {/* Quota Budget Gauge — only shown in real-data mode */}
+              {refreshStatus?.usingRealData && (() => {
+                const quota = (refreshStatus as any)?.quota as {
+                  remainingCredits: number | null;
+                  monthlyBudget: number;
+                  percentRemaining: number | null;
+                  tier: string;
+                  nextRefreshMins: number | null;
+                  suspended: boolean;
+                } | undefined;
+                if (!quota) return null;
+
+                const pct = quota.percentRemaining ?? 100;
+                const barColor =
+                  quota.suspended ? "bg-destructive" :
+                  pct < 25 ? "bg-orange-500" :
+                  pct < 50 ? "bg-yellow-500" :
+                  "bg-primary";
+                const labelColor =
+                  quota.suspended ? "text-destructive" :
+                  pct < 25 ? "text-orange-400" :
+                  pct < 50 ? "text-yellow-400" :
+                  "text-primary";
+                const tierLabel: Record<string, string> = {
+                  full: "FULL", standard: "STD", conserve: "ECO",
+                  emergency: "SOS", suspended: "HALT",
+                };
+
+                return (
+                  <div
+                    className="flex items-center gap-2 bg-secondary/40 border border-border/50 rounded-md px-3 py-1"
+                    title={`${quota.remainingCredits?.toLocaleString() ?? "?"} of ${quota.monthlyBudget.toLocaleString()} credits remaining${quota.nextRefreshMins ? ` · next refresh in ${quota.nextRefreshMins} min` : ""}`}
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-[72px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">API QUOTA</span>
+                        <span className={cn("text-[9px] font-mono font-bold", labelColor)}>
+                          {tierLabel[quota.tier] ?? quota.tier.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="w-full h-1 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all", barColor)}
+                          style={{ width: `${Math.max(2, pct)}%` }}
+                        />
+                      </div>
+                      <div className={cn("text-[9px] font-mono", labelColor)}>
+                        {quota.suspended
+                          ? "QUOTA SUSPENDED"
+                          : quota.remainingCredits !== null
+                            ? `${quota.remainingCredits.toLocaleString()} left`
+                            : "—"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <Button
                 size="sm"
                 variant="outline"

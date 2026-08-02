@@ -38,9 +38,13 @@
  *
  * Environment variables:
  *   THE_ODDS_API_KEY               — The Odds API key (required for real data)
- *   PICKS_REFRESH_INTERVAL_MINUTES — How often to refresh (default: 15)
+ *   PICKS_REFRESH_INTERVAL_MINUTES — Minimum refresh interval in minutes (default: 15). The adaptive
+ *                                    quota system may increase this automatically based on credits remaining.
  *   PICKS_STALENESS_MINUTES        — Age at which data is declared stale (default: 45)
  *   CACHE_SNAPSHOT_PATH            — Where to persist the snapshot (default: /tmp/ghostwatch-cache-snapshot.json)
+ *   MONTHLY_CREDIT_BUDGET          — Odds API credits allocated per billing month (default: 20000).
+ *                                    The adaptive scheduler uses this to automatically right-size the
+ *                                    refresh interval and game depth so credits last the full month.
  */
 
 import * as fs from "node:fs";
@@ -49,6 +53,7 @@ import {
   fetchEvents,
   fetchScores,
   fetchPlayerProps,
+  getQuotaStats,
   SPORT_KEYS,
 } from "./oddsApi.js";
 import {
@@ -372,6 +377,59 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ─── Adaptive quota protocol ──────────────────────────────────────────────────
+
+/**
+ * Five-tier adaptive refresh protocol — automatically stretches MONTHLY_CREDIT_BUDGET
+ * (default 20,000) across the full billing month by scaling the refresh interval
+ * and game depth based on how many credits remain.
+ *
+ *   Tier        % remaining   Interval   Max games/sport   ≈credits/day
+ *   ─────────────────────────────────────────────────────────────────────
+ *   full        > 75 %        45 min     3                 ~480
+ *   standard    50–75 %       60 min     2                 ~360
+ *   conserve    25–50 %       90 min     2                 ~240
+ *   emergency   5–25 %        120 min    1                 ~120
+ *   suspended   < 5 %         —          0   (snapshot-only, no API calls)
+ *
+ * PICKS_REFRESH_INTERVAL_MINUTES is honoured as a minimum floor — the adaptive
+ * system will never schedule a refresh shorter than that value.
+ *
+ * When no quota data is available yet (first start, before any API response),
+ * defaults to standard tier (60 min / 2 games) until real numbers arrive.
+ */
+export function getAdaptiveSettings(): {
+  intervalMs: number;
+  maxGamesPerSport: number;
+  suspended: boolean;
+  tier: "full" | "standard" | "conserve" | "emergency" | "suspended";
+} {
+  const monthlyBudget = Number(process.env["MONTHLY_CREDIT_BUDGET"] ?? "20000");
+  const minIntervalMs = Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15") * 60_000;
+  const { remainingRequests } = getQuotaStats();
+
+  if (remainingRequests === null) {
+    // No quota data yet — conservative standard defaults until first API call.
+    return { intervalMs: Math.max(60 * 60_000, minIntervalMs), maxGamesPerSport: 2, suspended: false, tier: "standard" };
+  }
+
+  const ratio = remainingRequests / monthlyBudget;
+
+  if (ratio < 0.05) {
+    return { intervalMs: 0, maxGamesPerSport: 0, suspended: true, tier: "suspended" };
+  }
+  if (ratio < 0.25) {
+    return { intervalMs: Math.max(120 * 60_000, minIntervalMs), maxGamesPerSport: 1, suspended: false, tier: "emergency" };
+  }
+  if (ratio < 0.50) {
+    return { intervalMs: Math.max(90 * 60_000, minIntervalMs), maxGamesPerSport: 2, suspended: false, tier: "conserve" };
+  }
+  if (ratio < 0.75) {
+    return { intervalMs: Math.max(60 * 60_000, minIntervalMs), maxGamesPerSport: 2, suspended: false, tier: "standard" };
+  }
+  return { intervalMs: Math.max(45 * 60_000, minIntervalMs), maxGamesPerSport: 3, suspended: false, tier: "full" };
+}
+
 async function refreshGamesAndScores(): Promise<{
   games: GeneratedGame[];
   liveGames: GeneratedLiveGame[];
@@ -417,7 +475,7 @@ async function refreshGamesAndScores(): Promise<{
   return { games: deduped, liveGames: allLiveGames };
 }
 
-async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
+async function refreshPicks(games: GeneratedGame[], maxGamesPerSport: number): Promise<GeneratedPick[]> {
   const sports = Object.keys(SPORT_KEYS);
   const allPicks: GeneratedPick[] = [];
   const delayMs = getPropRequestDelayMs();
@@ -430,7 +488,7 @@ async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
   let requestsFired = 0;
 
   logger.info(
-    { sports: sports.join(", "), delayMs },
+    { sports: sports.join(", "), delayMs, maxGamesPerSport },
     "[SportsCache] Starting staggered player-prop fetch",
   );
 
@@ -439,7 +497,7 @@ async function refreshPicks(games: GeneratedGame[]): Promise<GeneratedPick[]> {
     // open once a game begins, so live games are still bettable.
     const sportGames = games
       .filter((g) => g.sport === sport && (g.status === "Scheduled" || g.status === "Live"))
-      .slice(0, 3); // max 3 games per sport to manage API usage
+      .slice(0, maxGamesPerSport); // adaptive quota depth
 
     if (!sportGames.length) continue;
 
@@ -499,18 +557,32 @@ export async function refreshCache(): Promise<void> {
     return;
   }
 
+  const adaptive = getAdaptiveSettings();
+
+  if (adaptive.suspended) {
+    logger.warn(
+      { remainingCredits: getQuotaStats().remainingRequests },
+      "[SportsCache] Quota <5% of monthly budget — refresh suspended, serving snapshot",
+    );
+    return;
+  }
+
   if (state.isRefreshing) return;
 
   state.isRefreshing = true;
   state.lastError = null;
-  logger.info("[SportsCache] Starting data refresh from The Odds API…");
+
+  logger.info(
+    { tier: adaptive.tier, maxGamesPerSport: adaptive.maxGamesPerSport, nextRefreshMins: Math.round(adaptive.intervalMs / 60_000) },
+    "[SportsCache] Starting adaptive data refresh from The Odds API…",
+  );
 
   try {
     const { games, liveGames } = await refreshGamesAndScores();
     // A successful call returning zero games is still valid real data (e.g. off-season).
     // Do NOT fall back to mock data — serve empty arrays and mark as real.
 
-    const picks = games.length ? await refreshPicks(games) : [];
+    const picks = games.length ? await refreshPicks(games, adaptive.maxGamesPerSport) : [];
 
     // All collections reflect the real API state.
     // Empty arrays are intentional: "API active, nothing available right now."
@@ -583,23 +655,48 @@ export function computeBackoffDelay(baseMs: number, consecutiveFailures: number)
 }
 
 /**
- * Schedule the next refresh using exponential back-off on consecutive failures.
+ * Schedule the next refresh using the adaptive quota tier + exponential back-off.
+ *
+ * Each invocation re-reads quota from getAdaptiveSettings() so the interval
+ * automatically tightens or loosens as credits are consumed across the month.
+ * If the quota is exhausted (suspended tier) no future refresh is scheduled —
+ * the server serves its on-disk snapshot until the billing period resets.
  */
-function scheduleNextRefresh(baseMs: number): void {
+function scheduleNextRefresh(): void {
+  if (!schedulerStarted) return;
+
+  const adaptive = getAdaptiveSettings();
+
+  if (adaptive.suspended) {
+    logger.warn(
+      { remainingCredits: getQuotaStats().remainingRequests },
+      "[SportsCache] Quota exhausted — auto-refresh suspended until billing period resets",
+    );
+    return; // no setTimeout: server serves snapshot until next startup
+  }
+
   const failures = state.consecutiveFailures;
-  const delay = computeBackoffDelay(baseMs, failures);
+  const delay = computeBackoffDelay(adaptive.intervalMs, failures);
 
   if (failures > 0) {
     logger.warn(
       { consecutiveFailures: failures, nextRetryMs: delay, nextRetryMins: Math.round(delay / 60_000) },
       "[SportsCache] Back-off retry scheduled after failure",
     );
+  } else {
+    logger.info(
+      {
+        quotaTier: adaptive.tier,
+        nextRefreshMins: Math.round(delay / 60_000),
+        maxGamesPerSport: adaptive.maxGamesPerSport,
+        remainingCredits: getQuotaStats().remainingRequests,
+      },
+      "[SportsCache] Next refresh scheduled (adaptive quota protocol)",
+    );
   }
 
   schedulerHandle = setTimeout(() => {
-    void refreshCache().finally(() => {
-      scheduleNextRefresh(baseMs);
-    });
+    void refreshCache().finally(() => scheduleNextRefresh());
   }, delay);
 }
 
@@ -607,23 +704,24 @@ export function startScheduler(): void {
   if (schedulerStarted) return; // already running (guard covers the in-flight initial refresh)
   schedulerStarted = true;
 
-  const intervalMinutes = Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15");
-  const intervalMs = intervalMinutes * 60 * 1000;
-
   // If the API key is configured, try to restore the last snapshot so users
   // see real picks immediately while the first live refresh runs in the background.
   if (isOddsApiEnabled()) {
     loadSnapshot();
   }
 
-  // Run a live refresh immediately, then schedule the back-off loop.
+  // Run a live refresh immediately, then schedule the adaptive back-off loop.
   void refreshCache().finally(() => {
-    scheduleNextRefresh(intervalMs);
+    scheduleNextRefresh();
   });
 
   logger.info(
-    { intervalMinutes, oddsApiEnabled: isOddsApiEnabled() },
-    "[SportsCache] Scheduler started",
+    {
+      monthlyBudget: Number(process.env["MONTHLY_CREDIT_BUDGET"] ?? "20000"),
+      minIntervalMinutes: Number(process.env["PICKS_REFRESH_INTERVAL_MINUTES"] ?? "15"),
+      oddsApiEnabled: isOddsApiEnabled(),
+    },
+    "[SportsCache] Scheduler started (adaptive quota protocol)",
   );
 }
 
@@ -664,15 +762,12 @@ export function getTickets(): CacheState["tickets"] {
   return state.tickets;
 }
 
-/** Provenance + staleness status — used by /ghostwatch/status and /healthz. */
-export function getCacheStatus(): {
-  lastRefreshedAt: string | null;
-  usingRealData: boolean;
-  source: CacheSource;
-  isStale: boolean;
-  consecutiveFailures: number;
-  lastError: string | null;
-} {
+/** Provenance + staleness + quota status — used by /ghostwatch/status and /healthz. */
+export function getCacheStatus() {
+  const { remainingRequests } = getQuotaStats();
+  const monthlyBudget = Number(process.env["MONTHLY_CREDIT_BUDGET"] ?? "20000");
+  const adaptive = getAdaptiveSettings();
+
   return {
     lastRefreshedAt: state.lastRefreshedAt?.toISOString() ?? null,
     usingRealData: state.usingRealData,
@@ -680,6 +775,17 @@ export function getCacheStatus(): {
     isStale: isDataStale(),
     consecutiveFailures: state.consecutiveFailures,
     lastError: state.lastError,
+    quota: {
+      remainingCredits: remainingRequests,
+      monthlyBudget,
+      percentRemaining:
+        remainingRequests !== null
+          ? Math.round((remainingRequests / monthlyBudget) * 100)
+          : null,
+      tier: adaptive.tier,
+      nextRefreshMins: adaptive.suspended ? null : Math.round(adaptive.intervalMs / 60_000),
+      suspended: adaptive.suspended,
+    },
   };
 }
 
