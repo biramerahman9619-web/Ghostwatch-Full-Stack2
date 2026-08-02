@@ -472,6 +472,7 @@ export const UserSettingsInputRiskProfile = {
   Safe: 'Safe',
   Balanced: 'Balanced',
   Aggressive: 'Aggressive',
+  Mixed: 'Mixed',
 } as const;
 
 export type UserSettingsInputEntryType = typeof UserSettingsInputEntryType[keyof typeof UserSettingsInputEntryType];

@@ -1,4 +1,4 @@
-import { useListTickets, useSendTicketEmail, useGetSettings, useUpdateSettings, getListTicketsQueryKey } from "@workspace/api-client-react";
+import { useListTickets, useSendTicketEmail, useGetSettings, useUpdateSettings, getListTicketsQueryKey, getGetSettingsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { getGetSettingsQueryKey } from "@workspace/api-client-react";
+
 
 /** PrizePicks Power Play payout multipliers by pick count */
 const PP_MULTIPLIERS: Record<number, number> = { 2: 3, 3: 5, 4: 10, 5: 20, 6: 40 };
@@ -234,7 +234,15 @@ export default function Ghostspere() {
         // Refresh both settings and tickets so the new config is immediately reflected
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
-      }
+      },
+      onError: (err: any) => {
+        const msg: string = err?.response?.data?.error ?? err?.message ?? "Unknown error";
+        toast({
+          title: "Settings update failed",
+          description: msg,
+          variant: "destructive",
+        });
+      },
     });
   };
 
