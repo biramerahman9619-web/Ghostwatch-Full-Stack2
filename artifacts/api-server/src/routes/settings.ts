@@ -1,5 +1,5 @@
-import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { eq, and, isNull } from "drizzle-orm";
 import { db, userSettingsTable } from "@workspace/db";
 import {
   GetSettingsResponse,
@@ -39,8 +39,24 @@ function rowToSettings(row: {
   };
 }
 
+/** Returns the WHERE clause that scopes a settings query to the calling user.
+ *  - Authenticated: match rows where user_id = userId
+ *  - Unauthenticated: match legacy rows where user_id IS NULL (single-user fallback)
+ */
+function userFilter(req: Request) {
+  const userId = req.isAuthenticated() ? req.user.id : null;
+  return userId
+    ? eq(userSettingsTable.userId, userId)
+    : isNull(userSettingsTable.userId);
+}
+
 router.get("/settings", async (req, res): Promise<void> => {
-  const rows = await db.select().from(userSettingsTable).limit(1);
+  const rows = await db
+    .select()
+    .from(userSettingsTable)
+    .where(userFilter(req))
+    .limit(1);
+
   if (rows.length === 0) {
     res.json(GetSettingsResponse.parse(DEFAULT_SETTINGS));
     return;
@@ -56,8 +72,14 @@ router.put("/settings", async (req, res): Promise<void> => {
   }
 
   const data = parsed.data;
+  const userId = req.isAuthenticated() ? req.user.id : null;
+  const filter = userFilter(req);
 
-  const rows = await db.select().from(userSettingsTable).limit(1);
+  const rows = await db
+    .select()
+    .from(userSettingsTable)
+    .where(filter)
+    .limit(1);
 
   const updates: Record<string, unknown> = {};
   if (data.email !== undefined) updates.email = data.email;
@@ -70,6 +92,7 @@ router.put("/settings", async (req, res): Promise<void> => {
     const [inserted] = await db
       .insert(userSettingsTable)
       .values({
+        userId: userId ?? null,
         email: (data.email as string) ?? "",
         preferredSports: data.preferredSports?.join(",") ?? "NBA,NFL",
         riskProfile: (data.riskProfile as string) ?? "Balanced",
@@ -84,7 +107,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   const [updated] = await db
     .update(userSettingsTable)
     .set(updates)
-    .where(eq(userSettingsTable.id, rows[0].id))
+    .where(filter)
     .returning();
 
   res.json(UpdateSettingsResponse.parse(rowToSettings(updated)));
