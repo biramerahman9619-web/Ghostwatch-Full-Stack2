@@ -371,6 +371,8 @@ export const ListTicketsQueryParams = zod.object({
 export const ListTicketsResponseItem = zod.object({
   "id": zod.string(),
   "riskTier": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']),
+  "payoutMultiplier": zod.number(),
   "picks": zod.array(zod.object({
   "id": zod.string(),
   "playerName": zod.string(),
@@ -473,6 +475,7 @@ export const GetSettingsResponse = zod.object({
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
   "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional().default('PowerPlay'),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()
@@ -486,6 +489,7 @@ export const UpdateSettingsBody = zod.object({
   "email": zod.string().optional(),
   "preferredSports": zod.array(zod.string()).optional(),
   "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']).optional(),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional(),
   "picksPerTicket": zod.number().optional(),
   "emailNotifications": zod.boolean().optional()
 })
@@ -495,6 +499,7 @@ export const UpdateSettingsResponse = zod.object({
   "email": zod.string(),
   "preferredSports": zod.array(zod.string()),
   "riskProfile": zod.enum(['Safe', 'Balanced', 'Aggressive', 'Mixed']),
+  "entryType": zod.enum(['PowerPlay', 'FlexPlay']).optional().default('PowerPlay'),
   "picksPerTicket": zod.number(),
   "emailNotifications": zod.boolean().optional(),
   "createdAt": zod.string()

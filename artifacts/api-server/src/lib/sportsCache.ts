@@ -203,7 +203,9 @@ const SnapshotLiveGameSchema = z.object({
 
 const SnapshotTicketSchema = z.object({
   id: z.string(),
-  riskTier: z.enum(["Safe", "Balanced", "Aggressive"]),
+  riskTier: z.string(),
+  entryType: z.enum(["PowerPlay", "FlexPlay"]).default("PowerPlay"),
+  payoutMultiplier: z.number().default(5),
   picks: z.array(SnapshotPickSchema),
   combinedConfidence: z.number(),
   sport: z.string(),

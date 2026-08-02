@@ -9,15 +9,23 @@ import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetSettingsQueryKey } from "@workspace/api-client-react";
 
-/** Map a riskTier name to Tailwind classes for the small dot indicator. */
-function pickDotClass(riskTier: string): string {
-  if (riskTier === 'Safe') return 'bg-safe';
-  if (riskTier === 'Balanced') return 'bg-balanced';
-  if (riskTier === 'Aggressive') return 'bg-aggressive';
-  return 'bg-muted-foreground';
+/** PrizePicks Power Play payout multipliers by pick count */
+const PP_MULTIPLIERS: Record<number, number> = { 2: 3, 3: 5, 4: 10, 5: 20, 6: 40 };
+const FP_MULTIPLIERS: Record<number, number>  = { 2: 3, 3: 2.25, 4: 5, 5: 10, 6: 20 };
+const FP_BREAKDOWN: Record<number, string> = {
+  2: "",
+  3: "1.25x if 1 miss",
+  4: "1.5x if 1 miss",
+  5: "2x if 1 miss · 0.5x if 2",
+  6: "2x if 1 miss · 0.5x if 2",
+};
+
+function entryMultiplier(entryType: string, pickCount: number): number {
+  if (entryType === 'FlexPlay') return FP_MULTIPLIERS[pickCount] ?? 2.25;
+  return PP_MULTIPLIERS[pickCount] ?? 5;
 }
 
-/** Compact "2S · 3B · 1A" summary for Mixed ticket headers. */
+/** Compact "2S · 3B · 1A" summary for Mixed entries. */
 function MixedTierSummary({ picks }: { picks: any[] }) {
   const safe = picks.filter((p) => p.riskTier === 'Safe').length;
   const balanced = picks.filter((p) => p.riskTier === 'Balanced').length;
@@ -40,13 +48,15 @@ function MixedTierSummary({ picks }: { picks: any[] }) {
 }
 
 function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: () => void, isSelected: boolean }) {
-  const isMixed = ticket.riskTier === 'Mixed';
+  const isMixed     = ticket.riskTier === 'Mixed';
+  const isPP        = (ticket.entryType ?? 'PowerPlay') === 'PowerPlay';
+  const pickCount   = ticket.picks?.length ?? 0;
+  const multiplier  = ticket.payoutMultiplier ?? entryMultiplier(ticket.entryType ?? 'PowerPlay', pickCount);
+  const flexNote    = !isPP ? FP_BREAKDOWN[pickCount] : "";
 
-  let tierColor = "border-primary/30 text-primary";
-  if (ticket.riskTier === 'Safe')       tierColor = "border-safe/30 text-safe";
-  if (ticket.riskTier === 'Aggressive') tierColor = "border-aggressive/30 text-aggressive";
-  if (ticket.riskTier === 'Balanced')   tierColor = "border-balanced/30 text-balanced";
-  if (ticket.riskTier === 'Mixed')      tierColor = "border-purple-400/30 text-purple-400";
+  const entryColor  = isPP
+    ? "border-purple-400/40 text-purple-300"
+    : "border-sky-400/40 text-sky-300";
 
   return (
     <Card 
@@ -58,16 +68,23 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
     >
       <CardContent className="p-5">
         <div className="flex justify-between items-center mb-4 pb-4 border-b border-border/50">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className={cn("font-mono uppercase bg-background", tierColor)}>
-              {ticket.riskTier} PARLAY
-            </Badge>
-            {isMixed && <MixedTierSummary picks={ticket.picks} />}
-            <span className="text-xs text-muted-foreground font-mono">{ticket.sport}</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline" className={cn("font-mono uppercase bg-background text-[10px] px-2", entryColor)}>
+                {isPP ? '⚡ POWER PLAY' : '🔄 FLEX PLAY'}
+              </Badge>
+              {isMixed && <MixedTierSummary picks={ticket.picks} />}
+              <span className="text-xs text-muted-foreground font-mono">{ticket.sport}</span>
+            </div>
+            {flexNote && (
+              <span className="text-[9px] font-mono text-muted-foreground/60 pl-0.5">{flexNote}</span>
+            )}
           </div>
-          <div className="text-right">
-            <div className="text-sm font-mono text-muted-foreground uppercase">Win Prob</div>
-            <div className="font-mono font-bold text-lg">{ticket.combinedConfidence}%</div>
+          <div className="text-right flex-shrink-0 ml-3">
+            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Payout</div>
+            <div className={cn("font-mono font-bold text-2xl", isPP ? "text-purple-300" : "text-sky-300")}>
+              {multiplier}x
+            </div>
           </div>
         </div>
 
@@ -75,20 +92,20 @@ function TicketCard({ ticket, onSelect, isSelected }: { ticket: any, onSelect: (
           {ticket.picks.map((pick: any, i: number) => (
             <div key={i} className="flex justify-between items-center text-sm">
               <div className="flex items-center gap-2 min-w-0">
-                {isMixed && (
-                  <span
-                    className={cn("w-2 h-2 rounded-full flex-shrink-0", pickDotClass(pick.riskTier))}
-                    title={pick.riskTier}
-                  />
-                )}
                 <span className="font-bold truncate">{pick.playerName}</span>
-                <span className="text-muted-foreground shrink-0">{pick.propType}</span>
+                <span className="text-muted-foreground shrink-0 text-xs">{pick.propType}</span>
               </div>
               <div className="font-mono font-medium text-primary shrink-0 ml-2">
                 {pick.direction === 'Over' ? 'O' : 'U'} {pick.line}
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-border/30 flex items-center gap-1.5">
+          <span className="text-[9px] font-mono text-muted-foreground/50 uppercase tracking-widest">
+            {pickCount} picks · {ticket.riskTier} confidence
+          </span>
         </div>
       </CardContent>
     </Card>
@@ -106,6 +123,7 @@ export default function Ghostspere() {
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
   const [editEmail, setEditEmail] = useState<string>("");
   const [editRisk, setEditRisk] = useState<"Safe" | "Balanced" | "Aggressive" | "Mixed">("Balanced");
+  const [editEntryType, setEditEntryType] = useState<"PowerPlay" | "FlexPlay">("PowerPlay");
   const [editPicks, setEditPicks] = useState<number>(3);
 
   // Sync settings when loaded
@@ -113,6 +131,7 @@ export default function Ghostspere() {
     if (settings) {
       setEditEmail(settings.email || "");
       setEditRisk((settings.riskProfile as any) || "Balanced");
+      setEditEntryType((settings.entryType as any) || "PowerPlay");
       setEditPicks(settings.picksPerTicket || 3);
     }
   }, [settings]);
@@ -146,16 +165,16 @@ export default function Ghostspere() {
         const dispatched: number = data?.dispatched ?? selectedTickets.size;
         if (skipped > 0) {
           toast({
-            title: `${dispatched} ticket${dispatched !== 1 ? 's' : ''} dispatched`,
-            description: `${skipped} ticket${skipped !== 1 ? 's' : ''} expired mid-session and were skipped — ticket list refreshed.`,
+            title: `${dispatched} entr${dispatched !== 1 ? 'ies' : 'y'} dispatched`,
+            description: `${skipped} entr${skipped !== 1 ? 'ies' : 'y'} expired mid-session and were skipped — entry list refreshed.`,
             className: "border-yellow-500/50 bg-card text-yellow-400 font-mono",
           });
-          // Picks rotated — refresh list immediately so current tickets are shown
+          // Picks rotated — refresh list immediately so current entries are shown
           queryClient.invalidateQueries({ queryKey: getListTicketsQueryKey() });
         } else {
           toast({
-            title: "Tickets dispatched",
-            description: `Sent ${dispatched} ticket${dispatched !== 1 ? 's' : ''} to ${settings.email}`,
+            title: "Entries dispatched",
+            description: `Sent ${dispatched} entr${dispatched !== 1 ? 'ies' : 'y'} to ${settings.email}`,
             className: "border-primary bg-card text-primary font-mono",
           });
         }
@@ -180,6 +199,7 @@ export default function Ghostspere() {
       data: {
         email: editEmail,
         riskProfile: editRisk as any,
+        entryType: editEntryType as any,
         picksPerTicket: editPicks,
       }
     }, {
@@ -204,7 +224,7 @@ export default function Ghostspere() {
             <Bot className="w-6 h-6 text-primary" />
             Ghostspere
           </h1>
-          <p className="text-sm text-muted-foreground font-mono mt-1">Automated Ticket Construction & Dispatch</p>
+          <p className="text-sm text-muted-foreground font-mono mt-1">PrizePicks-Style Entry Construction & Dispatch</p>
         </div>
         <Button 
           onClick={handleSend} 
@@ -212,7 +232,7 @@ export default function Ghostspere() {
           className="font-mono uppercase tracking-widest gap-2"
         >
           <Mail className="w-4 h-4" />
-          {sendEmail.isPending ? 'Dispatching...' : `Dispatch Tickets (${selectedTickets.size})`}
+          {sendEmail.isPending ? 'Dispatching...' : `Dispatch Entries (${selectedTickets.size})`}
         </Button>
       </header>
 
@@ -222,7 +242,7 @@ export default function Ghostspere() {
         <div className="flex-1">
           <h2 className="text-sm font-mono text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
             <SplitSquareHorizontal className="w-4 h-4 text-primary" />
-            Today's Butler Tickets
+            Today's Pick Entries
           </h2>
 
           {loadingTickets ? (
@@ -232,7 +252,7 @@ export default function Ghostspere() {
           ) : tickets?.length === 0 ? (
             <div className="p-12 border border-dashed border-border rounded-lg text-center text-muted-foreground font-mono flex flex-col items-center">
               <Bot className="w-12 h-12 mb-4 opacity-50 text-primary" />
-              <p>No tickets constructed yet.</p>
+              <p>No entries constructed yet.</p>
               <p className="text-xs mt-2 opacity-50">Ghostspere is analyzing the slate...</p>
             </div>
           ) : (
@@ -275,23 +295,49 @@ export default function Ghostspere() {
               </div>
 
               <div>
-                <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Risk Profile</label>
+                <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Entry Type</label>
                 <div className="grid grid-cols-2 gap-1.5 bg-secondary/30 p-1.5 rounded-md border border-border">
                   {[
-                    { value: 'Safe', label: 'Safe', desc: 'High confidence' },
-                    { value: 'Balanced', label: 'Balanced', desc: 'Moderate edge' },
-                    { value: 'Aggressive', label: 'Aggressive', desc: 'High ceiling' },
-                    { value: 'Mixed', label: '⚡ Mixed', desc: 'Best of all tiers' },
+                    { value: 'PowerPlay', label: '⚡ Power Play', desc: 'All picks must hit' },
+                    { value: 'FlexPlay',  label: '🔄 Flex Play',  desc: 'Partial credit available' },
                   ].map(({ value, label, desc }) => (
-                    <button 
+                    <button
+                      key={value}
+                      onClick={() => setEditEntryType(value as any)}
+                      className={cn(
+                        "flex flex-col items-center py-2 px-1 text-xs font-mono rounded transition-all border",
+                        editEntryType === value
+                          ? value === 'FlexPlay'
+                            ? "bg-sky-500/20 border-sky-400/50 text-sky-300 font-bold shadow-sm"
+                            : "bg-purple-500/20 border-purple-400/50 text-purple-300 font-bold shadow-sm"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      )}
+                    >
+                      <span className="tracking-wide">{label}</span>
+                      <span className={cn(
+                        "text-[9px] mt-0.5 normal-case tracking-normal font-normal",
+                        editEntryType === value ? "opacity-80" : "opacity-50"
+                      )}>{desc}</span>
+                    </button>
+                  ))}
+                </div>
+
+              <div className="mt-3">
+                <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Pick Confidence</label>
+                <div className="grid grid-cols-2 gap-1.5 bg-secondary/30 p-1.5 rounded-md border border-border">
+                  {[
+                    { value: 'Safe',       label: 'Safe',       desc: 'High confidence' },
+                    { value: 'Balanced',   label: 'Balanced',   desc: 'Moderate edge' },
+                    { value: 'Aggressive', label: 'Aggressive', desc: 'High ceiling' },
+                    { value: 'Mixed',      label: '⚡ Mixed',   desc: 'All tiers blended' },
+                  ].map(({ value, label, desc }) => (
+                    <button
                       key={value}
                       onClick={() => setEditRisk(value as any)}
                       className={cn(
                         "flex flex-col items-center py-2 px-1 text-xs font-mono rounded transition-all border",
                         editRisk === value
-                          ? value === 'Mixed'
-                            ? "bg-purple-500/20 border-purple-400/50 text-purple-300 font-bold shadow-sm"
-                            : "bg-primary/20 border-primary/50 text-primary font-bold shadow-sm"
+                          ? "bg-primary/20 border-primary/50 text-primary font-bold shadow-sm"
                           : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                       )}
                     >
@@ -304,14 +350,17 @@ export default function Ghostspere() {
                   ))}
                 </div>
               </div>
+              </div>
 
               <div>
-                <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">Picks per Ticket ({editPicks})</label>
+                <label className="text-[10px] uppercase font-mono text-muted-foreground tracking-widest mb-2 block">
+                  Picks per Entry ({editPicks}) — {editEntryType === 'PowerPlay' ? `${PP_MULTIPLIERS[editPicks] ?? 5}x payout` : `${FP_MULTIPLIERS[editPicks] ?? 2.25}x payout`}
+                </label>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-muted-foreground">3</span>
+                  <span className="text-xs font-mono text-muted-foreground">2</span>
                   <input 
                     type="range" 
-                    min="3" 
+                    min="2" 
                     max="6" 
                     value={editPicks}
                     onChange={(e) => setEditPicks(Number(e.target.value))}
@@ -320,7 +369,7 @@ export default function Ghostspere() {
                   <span className="text-xs font-mono text-muted-foreground">6</span>
                 </div>
                 <div className="flex justify-between mt-1">
-                  {[3,4,5,6].map(n => (
+                  {[2,3,4,5,6].map(n => (
                     <button
                       key={n}
                       onClick={() => setEditPicks(n)}
@@ -329,7 +378,7 @@ export default function Ghostspere() {
                         editPicks === n ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      {n}
+                      {n}p·{editEntryType === 'PowerPlay' ? `${PP_MULTIPLIERS[n] ?? 5}x` : `${FP_MULTIPLIERS[n] ?? 2.25}x`}
                     </button>
                   ))}
                 </div>
