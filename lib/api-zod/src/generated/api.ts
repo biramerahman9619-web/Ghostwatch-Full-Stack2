@@ -374,6 +374,30 @@ export const ListSignalsResponse = zod.array(ListSignalsResponseItem)
 
 
 /**
+ * @summary AI verdict on whether to place live bets for an in-progress game
+ */
+export const GetLiveBetAnalysisQueryParams = zod.object({
+  "gameId": zod.coerce.string()
+})
+
+export const GetLiveBetAnalysisResponse = zod.object({
+  "gameId": zod.string(),
+  "verdict": zod.enum(['BET', 'SKIP', 'WAIT']),
+  "reason": zod.string(),
+  "momentum": zod.string(),
+  "picks": zod.array(zod.object({
+  "playerName": zod.string(),
+  "propType": zod.string(),
+  "line": zod.number(),
+  "direction": zod.enum(['Over', 'Under']),
+  "confidence": zod.number(),
+  "liveBetReason": zod.string()
+})),
+  "analyzedAt": zod.string()
+})
+
+
+/**
  * @summary Auto-built prop combo tickets from Ghostwatch/Ghost Express picks
  */
 export const ListTicketsQueryParams = zod.object({

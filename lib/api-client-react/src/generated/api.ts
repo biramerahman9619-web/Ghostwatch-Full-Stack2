@@ -32,6 +32,7 @@ import type {
   EmailResult,
   ErrorEnvelope,
   Game,
+  GetLiveBetAnalysisParams,
   GetPlayerFormParams,
   HandleBrowserLoginCallbackParams,
   HealthStatus,
@@ -41,6 +42,7 @@ import type {
   ListPicksParams,
   ListSignalsParams,
   ListTicketsParams,
+  LiveBetAnalysis,
   LiveGame,
   LivePick,
   LogoutBrowserSessionParams,
@@ -1798,6 +1800,90 @@ export function useListSignals<TData = Awaited<ReturnType<typeof listSignals>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListSignalsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetLiveBetAnalysisUrl = (params: GetLiveBetAnalysisParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ghost-express/live-bet-analysis?${stringifiedParams}` : `/api/ghost-express/live-bet-analysis`
+}
+
+/**
+ * @summary AI verdict on whether to place live bets for an in-progress game
+ */
+export const getLiveBetAnalysis = async (params: GetLiveBetAnalysisParams, options?: Parameters<typeof customFetch>[1]): Promise<LiveBetAnalysis> => {
+
+  return customFetch<LiveBetAnalysis>(getGetLiveBetAnalysisUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLiveBetAnalysisQueryKey = (params?: GetLiveBetAnalysisParams,) => {
+    return [
+    `/api/ghost-express/live-bet-analysis`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLiveBetAnalysisQueryOptions = <TData = Awaited<ReturnType<typeof getLiveBetAnalysis>>, TError = ErrorType<ErrorEnvelope>>(params: GetLiveBetAnalysisParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLiveBetAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLiveBetAnalysisQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLiveBetAnalysis>>> = ({ signal }) => getLiveBetAnalysis(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLiveBetAnalysis>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLiveBetAnalysisQueryResult = NonNullable<Awaited<ReturnType<typeof getLiveBetAnalysis>>>
+export type GetLiveBetAnalysisQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary AI verdict on whether to place live bets for an in-progress game
+ */
+
+export function useGetLiveBetAnalysis<TData = Awaited<ReturnType<typeof getLiveBetAnalysis>>, TError = ErrorType<ErrorEnvelope>>(
+ params: GetLiveBetAnalysisParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLiveBetAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLiveBetAnalysisQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
