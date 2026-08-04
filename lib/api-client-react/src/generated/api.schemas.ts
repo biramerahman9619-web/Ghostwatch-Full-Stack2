@@ -343,6 +343,41 @@ export interface Signal {
   team: string;
 }
 
+export type LiveBetPickDirection = typeof LiveBetPickDirection[keyof typeof LiveBetPickDirection];
+
+
+export const LiveBetPickDirection = {
+  Over: 'Over',
+  Under: 'Under',
+} as const;
+
+export interface LiveBetPick {
+  playerName: string;
+  propType: string;
+  line: number;
+  direction: LiveBetPickDirection;
+  confidence: number;
+  liveBetReason: string;
+}
+
+export type LiveBetAnalysisVerdict = typeof LiveBetAnalysisVerdict[keyof typeof LiveBetAnalysisVerdict];
+
+
+export const LiveBetAnalysisVerdict = {
+  BET: 'BET',
+  SKIP: 'SKIP',
+  WAIT: 'WAIT',
+} as const;
+
+export interface LiveBetAnalysis {
+  gameId: string;
+  verdict: LiveBetAnalysisVerdict;
+  reason: string;
+  momentum: string;
+  picks: LiveBetPick[];
+  analyzedAt: string;
+}
+
 export type TicketRiskTier = typeof TicketRiskTier[keyof typeof TicketRiskTier];
 
 
@@ -875,6 +910,10 @@ gameId?: string;
 };
 
 export type ListSignalsParams = {
+gameId: string;
+};
+
+export type GetLiveBetAnalysisParams = {
 gameId: string;
 };
 

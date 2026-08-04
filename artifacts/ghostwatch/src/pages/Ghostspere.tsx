@@ -26,7 +26,7 @@ import {
   Bot, Mail, Settings2, SplitSquareHorizontal, Shield, ShieldCheck, ShieldOff,
   Zap, Clock, Send, Activity, MessageSquare, TrendingUp, RefreshCw,
   CheckCircle, XCircle, MinusCircle, Radio, CalendarClock, Trophy,
-  Flame, Snowflake, ChevronDown, ChevronUp, AlertTriangle,
+  Flame, Snowflake, ChevronDown, ChevronUp, AlertTriangle, Ghost,
 } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -646,6 +646,9 @@ export default function Ghostspere() {
     }
   }, [settleResult, refetchResults]);
 
+  // ── Ghost Mode ──
+  const [ghostMode, setGhostMode] = useState(false);
+
   // ── Ticket state ──
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
   const [evaluations, setEvaluations] = useState<Map<string, { aiConfidence: number; reasoning: string; agentWouldSelect: boolean }>>(new Map());
@@ -1129,6 +1132,25 @@ export default function Ghostspere() {
               <span className="text-[9px] font-mono text-primary animate-pulse">saving…</span>
             )}
 
+            {/* Ghost Mode toggle */}
+            <button
+              onClick={() => setGhostMode((v) => !v)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-md border transition-all font-semibold",
+                ghostMode
+                  ? "bg-cyan-500/15 border-cyan-400/60 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+                  : "border-border/60 text-muted-foreground hover:text-foreground hover:border-cyan-400/30",
+              )}
+              title="Ghost Mode — shows only 90%+ confidence picks"
+            >
+              <Ghost className="w-3 h-3" />
+              Ghost Mode
+              {ghostMode && tickets && (() => {
+                const count = tickets.filter((t) => t.combinedConfidence >= 90).length;
+                return <span className="text-[9px] opacity-70">({count})</span>;
+              })()}
+            </button>
+
             {/* View toggle — pushed to right */}
             <div className="ml-auto flex items-center gap-0.5 bg-secondary/40 rounded-lg p-0.5 border border-border/50">
               <button
@@ -1165,10 +1187,20 @@ export default function Ghostspere() {
           {/* ── Entries view ─────────────────────────────────────────────────── */}
           {centerView === "entries" && (
           <div className="flex-1 overflow-y-auto p-5">
+          {ghostMode && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 border-b border-cyan-400/20 flex-shrink-0">
+              <Ghost className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="text-[10px] font-mono text-cyan-300 uppercase tracking-widest font-bold">Ghost Mode Active</span>
+              <span className="text-[9px] font-mono text-cyan-400/60 ml-1">— showing only 90%+ confidence entries</span>
+              <button onClick={() => setGhostMode(false)} className="ml-auto text-[9px] font-mono text-cyan-400/60 hover:text-cyan-300">
+                Exit
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
               <SplitSquareHorizontal className="w-3.5 h-3.5 text-primary" />
-              Today's Entries
+              {ghostMode ? "Ghost Picks" : "Today's Entries"}
               {evaluateMutation.isPending && (
                 <span className="text-[9px] text-primary animate-pulse">· AI evaluating...</span>
               )}
@@ -1205,27 +1237,46 @@ export default function Ghostspere() {
             <div className="grid grid-cols-2 gap-3">
               {[1, 2, 3, 4].map((i) => <Card key={i} className="h-48 animate-pulse bg-secondary/30" />)}
             </div>
-          ) : !tickets?.length ? (
-            <div className="p-12 border border-dashed border-border rounded-lg text-center text-muted-foreground font-mono flex flex-col items-center">
-              <Bot className="w-10 h-10 mb-3 opacity-40 text-primary" />
-              <p className="text-sm">No entries constructed yet.</p>
-              <p className="text-xs mt-1 opacity-50">Ghostspere is analyzing the slate...</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {tickets.map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  isSelected={selectedTickets.has(ticket.id)}
-                  onSelect={() => handleToggleTicket(ticket.id)}
-                  evaluation={evaluations.get(ticket.id)}
-                  evalFailed={evalFailed}
-                  resultByPickId={resultByPickId}
-                />
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            const displayed = ghostMode
+              ? (tickets ?? []).filter((t) => t.combinedConfidence >= 90)
+              : (tickets ?? []);
+
+            if (!displayed.length) {
+              return ghostMode ? (
+                <div className="p-12 border border-dashed border-cyan-400/20 rounded-lg text-center text-muted-foreground font-mono flex flex-col items-center bg-cyan-500/5">
+                  <Ghost className="w-10 h-10 mb-3 text-cyan-400/40" />
+                  <p className="text-sm text-cyan-300/60">No ghost-level picks on the current slate.</p>
+                  <p className="text-xs mt-1 opacity-50">Ghost Mode requires 90%+ combined confidence.</p>
+                  <button onClick={() => setGhostMode(false)} className="mt-3 text-[10px] font-mono text-cyan-400/60 hover:text-cyan-300 border border-cyan-400/20 rounded px-2 py-1">
+                    Show all entries
+                  </button>
+                </div>
+              ) : (
+                <div className="p-12 border border-dashed border-border rounded-lg text-center text-muted-foreground font-mono flex flex-col items-center">
+                  <Bot className="w-10 h-10 mb-3 opacity-40 text-primary" />
+                  <p className="text-sm">No entries constructed yet.</p>
+                  <p className="text-xs mt-1 opacity-50">Ghostspere is analyzing the slate...</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-2 gap-3">
+                {displayed.map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    isSelected={selectedTickets.has(ticket.id)}
+                    onSelect={() => handleToggleTicket(ticket.id)}
+                    evaluation={evaluations.get(ticket.id)}
+                    evalFailed={evalFailed}
+                    resultByPickId={resultByPickId}
+                  />
+                ))}
+              </div>
+            );
+          })()}
           </div>
           )}{/* end entries view */}
 

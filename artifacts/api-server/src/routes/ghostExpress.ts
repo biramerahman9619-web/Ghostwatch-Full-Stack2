@@ -6,7 +6,8 @@ import {
   ListSignalsQueryParams,
   ListSignalsResponse,
 } from "@workspace/api-zod";
-import { getLiveGames, getLivePicks, getSignals } from "../lib/sportsCache.js";
+import { getLiveGames, getLivePicks, getSignals, getPicks } from "../lib/sportsCache.js";
+import { generateLiveBetAnalysis } from "../lib/picksEngine.js";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,24 @@ router.get("/ghost-express/signals", async (req, res): Promise<void> => {
 
   const signals = getSignals()[query.data.gameId] ?? [];
   res.json(ListSignalsResponse.parse(signals));
+});
+
+router.get("/ghost-express/live-bet-analysis", async (req, res): Promise<void> => {
+  const gameId = String(req.query["gameId"] ?? "").trim();
+  if (!gameId) {
+    res.status(400).json({ error: "gameId is required" });
+    return;
+  }
+
+  const liveGame = getLiveGames().find((g) => g.id === gameId);
+  if (!liveGame) {
+    res.status(404).json({ error: "Game not found or not currently live" });
+    return;
+  }
+
+  const allPicks = getPicks();
+  const analysis = await generateLiveBetAnalysis(liveGame, allPicks);
+  res.json(analysis);
 });
 
 export default router;

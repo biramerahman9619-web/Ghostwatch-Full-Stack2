@@ -412,6 +412,36 @@ paths:
                 items:
                   $ref: "#/components/schemas/Signal"
 
+  /ghost-express/live-bet-analysis:
+    get:
+      operationId: getLiveBetAnalysis
+      tags: [ghost-express]
+      summary: AI verdict on whether to place live bets for an in-progress game
+      parameters:
+        - name: gameId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Live bet analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveBetAnalysis"
+        "400":
+          description: Missing gameId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Game not found or not currently live
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   # ─── Ghostspere Automation Butler ─────────────────────────────────────────
   /ghostspere/tickets:
     get:
@@ -1028,6 +1058,31 @@ components:
         strength: { type: string, enum: [Low, Medium, High] }
         playerName: { type: string }
         team: { type: string }
+
+    LiveBetPick:
+      type: object
+      required: [playerName, propType, line, direction, confidence, liveBetReason]
+      properties:
+        playerName: { type: string }
+        propType: { type: string }
+        line: { type: number }
+        direction: { type: string, enum: [Over, Under] }
+        confidence: { type: number }
+        liveBetReason: { type: string }
+
+    LiveBetAnalysis:
+      type: object
+      required: [gameId, verdict, reason, momentum, picks, analyzedAt]
+      properties:
+        gameId: { type: string }
+        verdict: { type: string, enum: [BET, SKIP, WAIT] }
+        reason: { type: string }
+        momentum: { type: string }
+        picks:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiveBetPick"
+        analyzedAt: { type: string }
 
     # ─── Ghostspere ──────────────────────────────────────────────────────────
     Ticket:

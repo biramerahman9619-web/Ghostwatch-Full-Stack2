@@ -1307,3 +1307,144 @@ function riskTierFromConfidence(conf: number): "Safe" | "Balanced" | "Aggressive
 function fallbackExplanation(ctx: PickContext): string {
   return `${ctx.bookmakerCount} bookmakers set the ${ctx.propType} line at ${ctx.line} with a ${ctx.impliedProbPct}% implied probability favoring ${ctx.direction}. Market consensus and confidence score of ${ctx.confidence}/100 support the ${ctx.direction} in the ${ctx.homeTeam} vs ${ctx.awayTeam} matchup.`;
 }
+
+// ─── Live Bet Analysis ────────────────────────────────────────────────────────
+
+export interface LiveBetPick {
+  playerName: string;
+  propType: string;
+  line: number;
+  direction: "Over" | "Under";
+  confidence: number;
+  liveBetReason: string;
+}
+
+export interface LiveBetAnalysis {
+  gameId: string;
+  verdict: "BET" | "SKIP" | "WAIT";
+  reason: string;
+  momentum: string;
+  picks: LiveBetPick[];
+  analyzedAt: string;
+}
+
+/**
+ * Given a live game's current state and a list of pre-match picks, uses OpenAI
+ * to decide whether bettors should still act on any of those picks right now.
+ *
+ * Returns a structured verdict (BET / SKIP / WAIT), a reasoning sentence,
+ * a one-line momentum read, and up to 3 top live-context picks.
+ */
+export async function generateLiveBetAnalysis(
+  game: GeneratedLiveGame,
+  availablePicks: GeneratedPick[],
+): Promise<LiveBetAnalysis> {
+  const { homeTeam, awayTeam, sport, homeScore, awayScore, quarter, timeRemaining, pace } = game;
+
+  // Filter picks that belong to this game (by gameId match or team name overlap)
+  const gamePicks = availablePicks.filter(
+    (p) =>
+      p.gameId === game.id ||
+      p.team.includes(homeTeam) ||
+      p.team.includes(awayTeam) ||
+      p.opponent.includes(homeTeam) ||
+      p.opponent.includes(awayTeam),
+  );
+
+  // Top 8 by confidence for the prompt
+  const topPicks = [...gamePicks].sort((a, b) => b.confidence - a.confidence).slice(0, 8);
+
+  const picksText = topPicks.length
+    ? topPicks
+        .map((p, i) => `${i + 1}. ${p.playerName} ${p.direction} ${p.line} ${p.propType} (conf: ${p.confidence}%)`)
+        .join("\n")
+    : "No pre-match prop picks available for this game.";
+
+  const scoreDiff = Math.abs(homeScore - awayScore);
+  const leader = homeScore > awayScore ? homeTeam : awayScore > homeScore ? awayTeam : null;
+  const gameContext = [
+    `Matchup: ${homeTeam} vs ${awayTeam}`,
+    `Sport: ${sport}`,
+    `Score: ${homeTeam} ${homeScore} — ${awayTeam} ${awayScore}`,
+    leader ? `Leading: ${leader} by ${scoreDiff}` : "Tied",
+    `Period/Quarter: ${quarter}`,
+    timeRemaining ? `Time Remaining: ${timeRemaining}` : "",
+    `Pace: ${pace}`,
+  ].filter(Boolean).join("\n  ");
+
+  const prompt = `You are Ghostwatch, an AI live sports betting advisor. A game is in progress. Decide if any of these pre-match props are still worth betting NOW.
+
+LIVE GAME STATE:
+  ${gameContext}
+
+AVAILABLE PROP PICKS:
+${picksText}
+
+Respond with a JSON object only:
+{
+  "verdict": "BET" | "SKIP" | "WAIT",
+  "reason": "<2-3 sentences explaining the verdict>",
+  "momentum": "<1 sentence on which team has momentum and why>",
+  "picks": [
+    {
+      "playerName": "...",
+      "propType": "...",
+      "line": <number>,
+      "direction": "Over" | "Under",
+      "confidence": <0-100, adjusted for live context>,
+      "liveBetReason": "<1 sentence on why this pick still holds live>"
+    }
+  ]
+}
+
+Rules:
+- BET: game state supports 2+ high-confidence props right now
+- WAIT: too early or unclear — re-evaluate after more game time
+- SKIP: score gap or game flow makes player props unreliable
+- Include only picks with live confidence >= 60. Max 3 picks.
+- Be honest — if the game doesn't support betting, say SKIP.`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_completion_tokens: 600,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+    const verdict =
+      parsed["verdict"] === "BET" || parsed["verdict"] === "SKIP" ? (parsed["verdict"] as "BET" | "SKIP") : "WAIT";
+
+    const rawPicks = Array.isArray(parsed["picks"]) ? parsed["picks"] : [];
+    const livePicks: LiveBetPick[] = rawPicks.slice(0, 3).map((p: Record<string, unknown>) => ({
+      playerName: String(p["playerName"] ?? ""),
+      propType: String(p["propType"] ?? ""),
+      line: Number(p["line"] ?? 0),
+      direction: p["direction"] === "Under" ? "Under" : ("Over" as "Over" | "Under"),
+      confidence: Math.min(100, Math.max(0, Number(p["confidence"] ?? 0))),
+      liveBetReason: String(p["liveBetReason"] ?? ""),
+    }));
+
+    return {
+      gameId: game.id,
+      verdict,
+      reason: typeof parsed["reason"] === "string" ? parsed["reason"] : "Analysis unavailable.",
+      momentum: typeof parsed["momentum"] === "string" ? parsed["momentum"] : "",
+      picks: livePicks,
+      analyzedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    logger.warn({ err, gameId: game.id }, "[LiveBetAnalysis] OpenAI call failed — returning WAIT");
+    return {
+      gameId: game.id,
+      verdict: "WAIT",
+      reason: "Live analysis temporarily unavailable — check back in a few minutes.",
+      momentum: "",
+      picks: [],
+      analyzedAt: new Date().toISOString(),
+    };
+  }
+}
