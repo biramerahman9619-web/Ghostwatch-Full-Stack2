@@ -6,26 +6,27 @@ databases:
   - name: ghostwatch-db
     databaseName: ghostwatch
     plan: free          # upgrade to starter/standard for production
-    ipAllowList: []     # allow all connections (locked down via DATABASE_URL)
+    ipAllowList: []
 
 services:
   # ── API Server (Node.js / Express) ─────────────────────────────────────────
   - type: web
     name: ghostwatch-api
     runtime: node
-    plan: free          # upgrade for always-on / more RAM
+    plan: free
     buildCommand: >-
-      npm install -g pnpm &&
-      pnpm install --frozen-lockfile &&
+      npm install -g pnpm@10 &&
+      pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/api-server run build:render
     startCommand: pnpm --filter @workspace/api-server run start
-    # Run DB migrations automatically before each deploy
     preDeployCommand: >-
-      npm install -g pnpm &&
-      pnpm install --frozen-lockfile &&
+      npm install -g pnpm@10 &&
+      pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/db run push
-    healthCheckPath: /health
+    healthCheckPath: /healthz
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -33,14 +34,14 @@ services:
           name: ghostwatch-db
           property: connectionString
       - key: SESSION_SECRET
-        generateValue: true        # Render generates a random secret on first deploy
+        generateValue: true
       - key: THE_ODDS_API_KEY
-        sync: false                # you enter this manually in the Render dashboard
+        sync: false
       - key: AI_INTEGRATIONS_OPENAI_API_KEY
         sync: false
       - key: AI_INTEGRATIONS_OPENAI_BASE_URL
         sync: false
-      # Optional email / SMTP — leave blank to disable email features
+      # Optional email — leave blank to disable
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -51,34 +52,27 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
-      # Optional — override if you host the portal at a custom domain
       - key: PORTAL_URL
         sync: false
 
-  # ── Frontend (React / Vite — served as a static site) ──────────────────────
+  # ── Frontend (React / Vite static site) ────────────────────────────────────
   - type: web
     name: ghostwatch-frontend
     runtime: static
     buildCommand: >-
-      npm install -g pnpm &&
-      pnpm install --frozen-lockfile &&
+      npm install -g pnpm@10 &&
+      pnpm install --no-frozen-lockfile &&
       pnpm --filter @workspace/ghostwatch run build:render
     staticPublishPath: artifacts/ghostwatch/dist/public
     routes:
-      # Proxy all /api/* and /auth/* traffic to the backend service
-      - type: rewrite
-        source: /api/*
-        destination: https://ghostwatch-api.onrender.com/api/*
-      - type: rewrite
-        source: /auth/*
-        destination: https://ghostwatch-api.onrender.com/auth/*
-      # SPA fallback — serve index.html for all other routes
+      # SPA fallback — all routes serve index.html
       - type: rewrite
         source: /*
         destination: /index.html
     envVars:
-      # Set this to your ghostwatch-api service URL after the first deploy,
+      - key: NODE_VERSION
+        value: "22"
+      # Set this to your ghostwatch-api Render URL after first deploy
       # e.g. https://ghostwatch-api.onrender.com
-      # The frontend uses it to point API calls at the backend.
       - key: VITE_API_BASE_URL
         sync: false
