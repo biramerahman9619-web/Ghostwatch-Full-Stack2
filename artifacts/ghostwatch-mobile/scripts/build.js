@@ -114,6 +114,55 @@ function prepareDirectories(timestamp) {
   console.log('Build:', timestamp);
 }
 
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function toScriptString(value) {
+  return JSON.stringify(value)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026');
+}
+
+function getAppName() {
+  try {
+    const appJson = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, 'app.json'), 'utf-8'),
+    );
+    return typeof appJson.expo?.name === 'string'
+      ? appJson.expo.name
+      : 'App Landing Page';
+  } catch {
+    return 'App Landing Page';
+  }
+}
+
+function generateLandingPage(baseUrl, domain) {
+  console.log('Generating landing page...');
+
+  const template = fs.readFileSync(
+    path.join(projectRoot, 'server', 'templates', 'landing-page.html'),
+    'utf-8',
+  );
+  const expsUrl = `exps://${domain}${basePath}`;
+
+  const html = template
+    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
+    .replace(/EXPS_URL_ATTRIBUTE_PLACEHOLDER/g, escapeHtml(expsUrl))
+    .replace(/EXPS_URL_JSON_PLACEHOLDER/g, toScriptString(expsUrl))
+    .replace(/APP_NAME_PLACEHOLDER/g, escapeHtml(getAppName()));
+
+  fs.writeFileSync(path.join(projectRoot, 'static-build', 'index.html'), html);
+
+  console.log('Landing page written');
+}
+
 function publishToDist() {
   console.log('Publishing build to dist/...');
 
@@ -603,6 +652,7 @@ async function main() {
 
   console.log('Updating manifests and creating landing page...');
   updateManifests(manifests, timestamp, baseUrl, assetsByHash);
+  generateLandingPage(baseUrl, domain);
 
   publishToDist();
 
