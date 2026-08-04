@@ -2,6 +2,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { Shell } from './components/layout/Shell';
 import { useAuth } from '@workspace/replit-auth-web';
+import { setBaseUrl } from '@workspace/api-client-react';
+
+// When deployed to Netlify (or any external host), point the API client at the
+// deployed Replit backend.  Set VITE_API_BASE_URL in Netlify → Site settings →
+// Environment variables to your backend's deployed URL, e.g.:
+//   https://ghostwatch-api.yourusername.replit.app
+if (import.meta.env.VITE_API_BASE_URL) {
+  setBaseUrl(import.meta.env.VITE_API_BASE_URL as string);
+}
 
 // Pages
 import Dashboard from './pages/Dashboard';
